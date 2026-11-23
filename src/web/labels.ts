@@ -2,7 +2,6 @@ import type { Action, Color, GameResultReason, PieceKind } from '../game/types.t
 import { cellLabel } from '../game/types.ts';
 export const colorName: Record<Color, string> = { black: '흑', white: '백' };
 export const pieceName: Record<PieceKind, string> = { soldier: '군사', rook: '룩', bishop: '비숍', knight: '나이트', queen: '퀸' };
-export const pieceGlyph: Record<PieceKind, string> = { soldier: '兵', rook: '♜', bishop: '♝', knight: '♞', queen: '♛' };
 export const resultReason: Record<GameResultReason, string> = { 'two-lines': '오목 두 줄을 완성했습니다.', 'no-legal-action': '상대가 둘 수 있는 수가 없습니다.', 'turn-timeout': '상대의 착수 시간이 끝났습니다.', 'disconnect-timeout': '상대의 누적 재접속 대기 시간이 끝났습니다.' };
 const errors: Record<string, string> = {
   UNAUTHORIZED: '세션이 만료되었습니다. 새로고침한 뒤 닉네임을 다시 입력하세요.',
