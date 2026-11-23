@@ -16,3 +16,13 @@
 - 최종 수정 커밋: d430ca6a9c (연결 끊김 저장 실패 복구), 1133358e99 (운영/개발 진입점), d685edd50d (실제 교차 브라우저 인수).
 - 접근성: axe 자동 violations 0. 짧은 SVG 좌표의 자동 판정 유보는 실제 배경 대비 8.9123:1로 수동 해소. 실기기 스크린리더 전체 준수 인증을 주장하지 않음.
 - 원래 Task 1–4/서버5–8/화면9–12는 공유 계약 또는 통합 범위 단위로 커밋했다. 원문 스킬의 태스크별 신규 모델 지정·독립 커밋·원격 submit과 동일하게 실행했다고 주장하지 않는다.
+
+## PC 전술석 재설계
+
+- 승인: 전술석 3열·핵심 정보 우선·120ms·IBM Plex Sans KR, 이어진 병렬 구현 요청.
+- 계획: `plans/technical-plan-pc-cockpit.md`; BASE `1d69e4242d2bc6a4951d142591c77230fbcb230d`. 시작 작업 트리 깨끗함.
+- Cockpit Task 1: DONE — 컴포넌트 구조·단일 clock·SVG 기물·오른쪽 확정·준비 응답 복구. 초기 통합 5deae63e0a, P2 수정과 실제 ready ACK 유실 회귀 통과.
+- Cockpit Task 2: DONE — OKLCH 다크 토큰·400/600 self-host font·height-fit·120ms/reduced motion. OFL을 public 경로로 옮겨 실제 빌드 배포/HTTP200 확인. 마지막 border 대비 3.3456:1.
+- Cockpit Task 3: DONE — E2E32개, 최종 타입 검사, 실제 PC/모바일·확대·키보드·low-height·motion·axe/대비 검증 완료. 독립 리뷰 둘 다 correct. README/CHANGELOG/실행 원장과 `cockpit-final-report.md`에 증거 기록.
+- 모델 지정 인자 부재·LSP workspace 인식 실패는 이전과 동일. 통합 검사로 계약을 검증하며 원격 게시하지 않음.
+- Cockpit 수정 커밋: 87423bfb8a (준비 응답 복구), 09485d6c57 (제목·대비·legacy glyph 정리), 104cffa062 (폰트 라이선스 배포).
