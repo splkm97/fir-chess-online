@@ -47,6 +47,7 @@ function startIfReady(room: StoredRoom, now: number) {
 export function createMatchService(store: Store, clock: Clock, onError: (error: unknown) => void = error => console.error('Match timer failed', error)): MatchService {
   const timers = new Map<string, () => void>();
   const listeners = new Set<(code: string) => void>();
+  const pendingDisconnects = new Map<string, { sessionId: string; at: number }[]>();
   let closed = false;
   function notify(code: string) { for (const listener of listeners) listener(code); }
   function schedule(room: StoredRoom) {
@@ -65,8 +66,7 @@ export function createMatchService(store: Store, clock: Clock, onError: (error: 
       try { settle(room.code); }
       catch (error) {
         onError(error);
-        // A failed database write cannot erase a deadline. Retry from persisted state.
-        if (!closed) timers.set(room.code, clock.schedule(() => { timers.delete(room.code); const current = store.room(room.code); if (current) schedule(current); }, 1000));
+        retrySettlement(room.code);
       }
     }, Math.max(0, deadline - clock.nowMs())));
   }
@@ -75,29 +75,23 @@ export function createMatchService(store: Store, clock: Clock, onError: (error: 
     store.save(room, oldRevision);
     schedule(room); notify(room.code);
   }
-  function settle(code: string): StoredRoom {
-    const room = requireRoom(store, code, clock);
-    const now = clock.nowMs();
+  function expire(room: StoredRoom, now: number): boolean {
     if (room.status === 'active' && room.deadlineMonoMs !== null && now >= room.deadlineMonoMs && room.game?.status === 'playing') {
       lose(room, room.game.turn, 'turn-timeout', now, clock.wallMs());
-    } else if (room.status === 'paused') {
-      const black = room.disconnectedSince.black === null ? Infinity : room.disconnectedSince.black + room.disconnectRemainingMs.black;
-      const white = room.disconnectedSince.white === null ? Infinity : room.disconnectedSince.white + room.disconnectRemainingMs.white;
-      if (now < Math.min(black, white)) { schedule(room); return room; }
-      if (black === white) {
-        freeze(room, now, clock.wallMs()); room.status = 'aborted'; room.abortReason = 'both-disconnected';
-      } else lose(room, black < white ? 'black' : 'white', 'disconnect-timeout', now, clock.wallMs());
-    } else { schedule(room); return room; }
-    commit(room, room.revision);
-    return room;
+      return true;
+    }
+    if (room.status !== 'paused') return false;
+    const black = room.disconnectedSince.black === null ? Infinity : room.disconnectedSince.black + room.disconnectRemainingMs.black;
+    const white = room.disconnectedSince.white === null ? Infinity : room.disconnectedSince.white + room.disconnectRemainingMs.white;
+    if (now < Math.min(black, white)) return false;
+    if (black === white) {
+      freeze(room, now, clock.wallMs()); room.status = 'aborted'; room.abortReason = 'both-disconnected';
+    } else lose(room, black < white ? 'black' : 'white', 'disconnect-timeout', now, clock.wallMs());
+    return true;
   }
-  function setConnected(code: string, sessionId: string, connected: boolean) {
-    const initial = requireRoom(store, code, clock);
-    const color = memberColor(initial, sessionId);
-    const room = settle(code);
-    const seat = room.players[color];
-    if (!seat || terminal(room) || seat.connected === connected) return;
-    const now = clock.nowMs();
+  function changeConnection(room: StoredRoom, sessionId: string, connected: boolean, now: number): boolean {
+    const color = memberColor(room, sessionId), seat = room.players[color];
+    if (!seat || terminal(room) || seat.connected === connected) return false;
     seat.connected = connected;
     if (room.status === 'waiting') startIfReady(room, now);
     else if (!connected) {
@@ -113,12 +107,57 @@ export function createMatchService(store: Store, clock: Clock, onError: (error: 
         room.status = 'active'; room.deadlineMonoMs = now + room.turnRemainingMs;
       }
     }
-    commit(room, room.revision);
+    return true;
+  }
+  function retrySettlement(code: string) {
+    timers.get(code)?.(); timers.delete(code);
+    if (closed) return;
+    timers.set(code, clock.schedule(() => {
+      timers.delete(code);
+      try { settle(code); }
+      catch (error) {
+        if (error instanceof ServiceError && ['ROOM_NOT_FOUND', 'ROOM_EXPIRED'].includes(error.code)) { pendingDisconnects.delete(code); return; }
+        onError(error); retrySettlement(code);
+      }
+    }, 1000));
+  }
+  function settle(code: string): StoredRoom {
+    const room = requireRoom(store, code, clock);
+    const pending = pendingDisconnects.get(code);
+    let changed = false;
+    if (pending) {
+      for (const event of pending) {
+        changed = expire(room, event.at) || changed;
+        changed = changeConnection(room, event.sessionId, false, event.at) || changed;
+      }
+    }
+    changed = expire(room, clock.nowMs()) || changed;
+    if (changed) {
+      const oldRevision = room.revision;
+      room.revision++;
+      store.save(room, oldRevision);
+    }
+    pendingDisconnects.delete(code);
+    schedule(room);
+    if (changed) notify(code);
+    return room;
+  }
+  function setConnected(code: string, sessionId: string, connected: boolean) {
+    memberColor(requireRoom(store, code, clock), sessionId);
+    const room = settle(code);
+    if (changeConnection(room, sessionId, connected, clock.nowMs())) commit(room, room.revision);
   }
   return {
     settle, notify,
     connect(code, sessionId) { setConnected(code, sessionId, true); },
-    disconnect(code, sessionId) { setConnected(code, sessionId, false); },
+    disconnect(code, sessionId) {
+      memberColor(requireRoom(store, code, clock), sessionId);
+      const events = pendingDisconnects.get(code) ?? [];
+      if (!events.some(event => event.sessionId === sessionId)) events.push({ sessionId, at: clock.nowMs() });
+      pendingDisconnects.set(code, events);
+      try { settle(code); }
+      catch (error) { retrySettlement(code); throw error; }
+    },
     snapshot(code, sessionId) {
       memberColor(requireRoom(store, code, clock), sessionId);
       const room = settle(code), now = clock.nowMs();
@@ -167,6 +206,6 @@ export function createMatchService(store: Store, clock: Clock, onError: (error: 
       return { type: 'ack', commandId: command.commandId, appliedRevision: room.revision };
     },
     subscribe(listener) { listeners.add(listener); return () => listeners.delete(listener); },
-    close() { closed = true; for (const cancel of timers.values()) cancel(); timers.clear(); listeners.clear(); },
+    close() { closed = true; for (const cancel of timers.values()) cancel(); timers.clear(); pendingDisconnects.clear(); listeners.clear(); },
   };
 }

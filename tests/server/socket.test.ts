@@ -89,6 +89,32 @@ describe('real WebSocket transport', () => {
     black.send(command); await black.next(message => message.type === 'ack' && message.commandId === command.commandId);
     expect(f.store.room(room.code)?.game?.players.black.food).toBe(1);
   });
+  it('recovers a failed disconnect write using the original detection time', async () => {
+    const { f, room, black, address } = await setup();
+    const serverSocket = [...f.app.websocketServer.clients][0];
+    if (!serverSocket) throw new Error('Black server socket missing');
+    const db = new Database(join(f.directory, 'game.sqlite'));
+    try {
+      f.clock.advance(1000, false);
+      db.exec("CREATE TRIGGER fail_disconnect BEFORE UPDATE ON rooms BEGIN SELECT RAISE(FAIL, 'disconnect rejected'); END");
+      const closed = once(serverSocket, 'close');
+      await black.close(); await closed;
+      expect(f.store.room(room.code)?.status).toBe('active');
+      db.exec('DROP TRIGGER fail_disconnect');
+      f.clock.advance(1000);
+      expect(f.store.room(room.code)).toMatchObject({
+        status: 'paused', turnRemainingMs: 59_000,
+        disconnectedSince: { black: 1000 }, players: { black: { connected: false } },
+      });
+      f.clock.advance(60_000, false);
+      const returned = await peer(address, room.code, room.black); peers.push(returned);
+      const state = f.match.snapshot(room.code, f.store.room(room.code)!.players.black.sessionId);
+      expect(state).toMatchObject({ status: 'active', turnRemainingMs: 59_000, disconnectRemainingMs: { black: 119_000 } });
+      expect(state.game?.status).toBe('playing');
+    } finally {
+      db.exec('DROP TRIGGER IF EXISTS fail_disconnect'); db.close();
+    }
+  });
   it('rejects malformed JSON, unknown fields and oversized frames', async () => {
     const { f, room, black } = await setup();
     const revision = f.store.room(room.code)!.revision;
