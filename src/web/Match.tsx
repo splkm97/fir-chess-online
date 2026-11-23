@@ -93,7 +93,7 @@ export default function Match({ room, receivedAt, enabled, pending, onLobby, onR
           {preview?.ok && preview.candidates.length > 0 && !pending && <LinePicker candidates={preview.candidates} selected={claims} needed={needed} onChoose={chooseLine} onReset={() => { if (activeDraft) setDraft({ ...activeDraft, claims: [] }); }} />}
           {notice && <p className="small muted" role="status">{notice}</p>}
         </>}
-        {pending?.type === 'action' && <div className="pending-summary" role="status"><strong>확인 중: {actionLabel(pending.action)}</strong>{pending.claimedLines.length > 0 && <p>보호 구간: {pending.claimedLines.map(line => line.cells.map(cellLabel).join(' · ')).join(' / ')}</p>}<p className="small">응답을 확인할 때까지 다음 수를 보내지 않습니다.</p>{enabled && <button type="button" onClick={onRetryPending}>같은 요청 다시 확인</button>}</div>}
+        {pending && <div className="pending-summary" role="status"><strong>{pending.type === 'action' ? `확인 중: ${actionLabel(pending.action)}` : '준비 요청 응답 확인 중'}</strong>{pending.type === 'action' && pending.claimedLines.length > 0 && <p>보호 구간: {pending.claimedLines.map(line => line.cells.map(cellLabel).join(' · ')).join(' / ')}</p>}<p className="small">응답을 확인할 때까지 다음 수를 보내지 않습니다.</p>{enabled && <button type="button" onClick={onRetryPending}>같은 요청 다시 확인</button>}</div>}
         {!terminal && <details className="command-help"><summary>착수 규칙</summary><p className="small muted">이동하려면 보드의 내 체스기물을 선택하세요. 이동 비용은 식량 2이며, 보호된 기물과 군사는 이동할 수 없습니다.</p><p className="small muted">방 상태가 바뀌면 미확정 선택은 초기화됩니다. 서버에서 확인한 착수만 보드에 남습니다.</p></details>}
       </div>
       <div className="command-footer">

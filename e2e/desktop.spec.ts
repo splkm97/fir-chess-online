@@ -141,3 +141,33 @@ test('서버 응답 대기 중에도 보드와 확정 버튼이 움직이지 않
     await expect(page.locator('.pending-summary')).not.toBeVisible();
   } finally { relay.release?.(); await whiteContext.close(); }
 });
+
+test('경기가 시작된 뒤에도 준비 요청을 같은 ID로 다시 확인할 수 있다', async ({ page, browser }) => {
+  const readyIds: string[] = [];
+  let dropped = false;
+  await page.routeWebSocket('**/socket', client => {
+    const server = client.connectToServer();
+    client.onMessage(raw => {
+      const command = commandSchema.parse(JSON.parse(String(raw)));
+      if (command.type === 'ready') readyIds.push(command.commandId);
+      server.send(raw);
+    });
+    server.onMessage(raw => {
+      const message = serverMessageSchema.parse(JSON.parse(String(raw)));
+      if (!dropped && message.type === 'ack' && readyIds.includes(message.commandId)) { dropped = true; return; }
+      client.send(raw);
+    });
+  });
+  const { whiteContext } = await startMatch(page, browser);
+  try {
+    await expect(page.getByRole('button', { name: '군사 배치', exact: true })).toBeDisabled();
+    const retry = page.locator('.cockpit-command').getByRole('button', { name: '같은 요청 다시 확인', exact: true });
+    await expect(retry).toBeVisible();
+    await retry.click();
+    await expect(page.locator('.pending-summary')).not.toBeVisible();
+    expect(readyIds.length).toBeGreaterThanOrEqual(2);
+    expect(new Set(readyIds).size).toBe(1);
+    await place(page, 0, 'black');
+    expect((await snapshot(page)).game?.players.black.food).toBe(1);
+  } finally { await whiteContext.close(); }
+});
