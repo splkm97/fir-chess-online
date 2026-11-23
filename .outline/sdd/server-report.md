@@ -22,7 +22,9 @@ Changed `src/server/app.ts`; added `src/server/{clock,schema,store,session,lobby
    - Real temporary SQLite files; real ephemeral-port sockets; fake clock exact boundaries and no 60/180-second sleeps; isolated child process SIGKILL/restart/SIGTERM recovery; no lingering runner handles observed.
 2. Tightened two transport tests afterward to avoid overstating race evidence: an old client holds the replacement close frame and sends an actual late frame; a post-commit listener terminates the actual server socket before ACK dispatch rather than merely leaving an ACK unread.
    - `mise exec node@26.13.1 -- npm test -- tests/server/socket.test.ts -t 'replaces a connection|replays a committed command'`
-   - **2 passed, 6 skipped**, duration 211ms. Only the two corrected tests were rerun; server implementation did not change after full suite verification.
+   - **2 passed, 6 skipped**, duration 211ms. Server implementation did not change after the first full suite verification.
+3. Final acceptance after every source/test edit: `mise exec node@26.13.1 -- npm test -- tests/server`
+   - **7 files passed, 48 tests passed**, duration 636ms, successful command completion.
 
 Evidence covers 59,999/60,000/60,001ms turn boundaries, 179,999/180,000ms and cumulative disconnect boundaries, wall-clock jumps, delayed callbacks, both-disconnected abort, real two-line victory, duplicate/reused/stale IDs, failed commit/no ACK, actual commit-before-ACK connection loss, old-generation late frame/close, malformed/binary/oversized messages, real paused-consumer backpressure, missing heartbeat, cookie secrecy, unauthorized upgrade/member forgery/Origin checks, expiry and proxy-spoof rate limits.
 

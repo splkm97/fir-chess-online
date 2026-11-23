@@ -233,7 +233,7 @@ scripts/dev.mjs
 src/game/{types,moves,engine,lines}.ts
 src/protocol/messages.ts
 src/server/{config,main,app,store,session,lobby,match,clock,socket}.ts
-src/server/schema.sql
+src/server/schema.ts
 src/web/{index.html,main.tsx,App.tsx,styles.css}
 src/web/{api.ts,useRoom.ts,Lobby.tsx,Match.tsx,Board.tsx,ActionPanel.tsx,LinePicker.tsx}
 src/web/board-input.ts
@@ -387,7 +387,8 @@ Zod strict schemas로 HTTP payload, ready/action envelope, public snapshot, ACK/
 ### 범위와 의존성
 
 - 선행: Task 4.
-- 파일: `src/server/store.ts`, `src/server/schema.sql`, `tests/server/store.test.ts`, `tests/helpers/server.ts`.
+- 파일: `src/server/store.ts`, `src/server/schema.ts`, `tests/server/store.test.ts`, `tests/helpers/server.ts`.
+- SQL은 `schema.ts`의 단일 상수로 정의한다. 별도 SQL 파일 복사 단계 없이 tsc가 운영 산출물에 포함하도록 한다.
 - 관심사: SQLite의 실제 transaction·revision·idempotency 저장. 네트워크는 구현하지 않는다.
 
 ### 구현

@@ -7,3 +7,4 @@ playwright-report/
 test-results/
 *.tsbuildinfo
 .outline/sdd/*-diff.md
+.outline/sdd/evidence/
