@@ -1,0 +1,43 @@
+{
+  "name": "omokchess",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=26.13.1 <27"
+  },
+  "packageManager": "npm@12.2.3",
+  "scripts": {
+    "dev": "node scripts/dev.mjs",
+    "dev:server": "node --env-file-if-exists=.env --watch src/server/main.ts",
+    "dev:web": "vite",
+    "typecheck": "tsc --noEmit",
+    "build": "tsc -p tsconfig.server.json && vite build",
+    "start": "node --env-file-if-exists=.env dist/server/main.js",
+    "test": "vitest run",
+    "test:e2e": "playwright test",
+    "check": "npm run typecheck && npm test && npm run build"
+  },
+  "dependencies": {
+    "react": "19.3.1",
+    "react-dom": "19.3.1",
+    "fastify": "5.12.8",
+    "@fastify/websocket": "11.3.7",
+    "@fastify/static": "10.1.12",
+    "@fastify/cookie": "11.1.5",
+    "better-sqlite3": "13.2.0",
+    "zod": "4.6.7"
+  },
+  "devDependencies": {
+    "typescript": "7.0.2",
+    "vite": "8.3.8",
+    "@vitejs/plugin-react": "6.3.0",
+    "vitest": "5.1.1",
+    "@playwright/test": "1.65.1",
+    "@types/node": "26.6.6",
+    "@types/react": "19.3.0",
+    "@types/react-dom": "19.3.0",
+    "@types/ws": "8.18.2",
+    "@types/better-sqlite3": "9.6.0"
+  }
+}

@@ -1,0 +1,1 @@
+export default function App() { return <main className="app-shell"><header><p className="eyebrow">OMOK / CHESS</p><h1>오목체스</h1><p>체스의 움직임으로, 오목의 두 줄을.</p></header><section className="panel"><h2>두 줄이 완성되면 승리</h2><p>군사를 배치해 식량을 모으고, 체스기물을 움직여 상대의 전략을 끊으세요. 완성된 다섯 기물은 보호됩니다.</p></section></main>; }
