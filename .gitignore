@@ -1,0 +1,9 @@
+node_modules/
+dist/
+data/
+.env
+.idea/
+playwright-report/
+test-results/
+*.tsbuildinfo
+.outline/sdd/*-diff.md
