@@ -70,7 +70,7 @@ export default function App() {
     history.pushState(null, '', '/'); setCode(null); setInvitation(null); setError(null);
     setSession(current => current ? { ...current, roomCode: null } : current);
   }
-  return <main className="app-shell">
+  return <main className={`app-shell${code ? ' has-room' : ''}`}>
     <header className={`app-header${code ? ' compact' : ''}`}><div><p className="eyebrow">OMOK / CHESS</p><h1>오목체스</h1></div><p>체스의 움직임으로,<br className="mobile-break" /> 오목의 두 줄을.</p></header>
     {loading ? <section className="panel loading-panel" aria-busy="true"><h2>자리를 확인하고 있습니다.</h2><p role="status">이 브라우저의 세션과 참가 중인 방을 불러옵니다.</p><div className="loading-placeholder" aria-hidden="true" /></section> : code ? <Room key={code} code={code} onLobby={lobby} /> : <Lobby session={session} busy={busy} error={error} invitation={invitation} onStart={nickname => { void start(nickname); }} onCreate={() => { void openRoom(); }} onJoin={next => { void openRoom(next); }} onResume={enterRoom} />}
     <footer className="app-footer"><span>군사 20 · 체스 4 · 승리까지 두 줄</span><span>서버 확정 방식 · 한 턴 60초</span></footer>

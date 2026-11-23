@@ -5,7 +5,8 @@ import { cellLabel, COLORS, SIZE } from '../game/types.ts';
 import { protectedCells } from '../game/moves.ts';
 import { lineKey } from '../game/lines.ts';
 import { BOARD_EXTENT, BOARD_MARGIN, BOARD_STEP, isTap, keyboardCell, pointToCell } from './board-input.ts';
-import { colorName, pieceGlyph, pieceName } from './labels.ts';
+import { colorName, pieceName } from './labels.ts';
+import PieceIcon from './PieceIcon.tsx';
 
 interface Props {
   game: GameBoard | null;
@@ -66,7 +67,7 @@ export default function Board({ game, selected, legal, previewCell, claimedLines
       <span className="small muted">20 × 20 교차점</span>
       <div className="button-row"><button type="button" onClick={() => setZoom(value => Math.min(3, value + 1))} disabled={zoom === 3}>확대</button><button type="button" onClick={() => setZoom(value => Math.max(0, value - 1))} disabled={zoom === 0}>축소</button><button type="button" onClick={() => setZoom(0)} disabled={zoom === 0}>전체 보기</button></div>
     </div>
-    <div className="board-scroll" data-testid="board" onScroll={() => { if (gesture.current) gesture.current.moved = true; }}>
+    <div className="board-scroll" data-testid="board" data-zoomed={zoom > 0} onScroll={() => { if (gesture.current) gesture.current.moved = true; }}>
       <svg ref={svg} className="game-board" viewBox={`0 0 ${BOARD_EXTENT} ${BOARD_EXTENT}`} style={zoom ? { width: `${880 + (zoom - 1) * 240}px`, minWidth: '100%' } : undefined} role="group" aria-label="오목체스 보드, 방향키로 이동하고 Enter로 선택" onPointerDown={pointerDown} onPointerMove={pointerMove} onPointerUp={pointerUp} onPointerCancel={event => { pointers.current.delete(event.pointerId); gesture.current = null; }} onLostPointerCapture={() => { gesture.current = null; }}>
         <title>오목체스 교차점 보드</title>
         <g className="board-grid" aria-hidden="true">{axes.map(i => <g key={i}><line x1={25} y1={point(i).x} x2={975} y2={point(i).x} /><line x1={point(i).x} y1={25} x2={point(i).x} y2={975} /></g>)}</g>
@@ -81,7 +82,7 @@ export default function Board({ game, selected, legal, previewCell, claimedLines
           return <g key={cell} data-cell={cell} transform={`translate(${x} ${y})`} role="button" aria-label={label} aria-pressed={selected === cell || previewCell === cell} tabIndex={focus === cell ? 0 : -1} onFocus={() => setFocus(cell)} onKeyDown={event => keyDown(event, cell)} onClick={event => { if (event.detail === 0) onSelect(cell); }} className={`intersection${previewCell === cell ? ' preview' : ''}`}>
             <rect className="cell-target" x={-25} y={-25} width={50} height={50} />
             {legal.has(cell) && <circle className="legal-dot" r={piece ? 23 : 6} />}
-            {piece && <><circle className={`piece ${piece.color}`} r={19} /><text aria-hidden="true" className={`piece-glyph ${piece.color} ${piece.kind}`} textAnchor="middle" dominantBaseline="central">{pieceGlyph[piece.kind]}</text></>}
+            {piece && <><circle className={`piece ${piece.color}`} r={19} /><PieceIcon className={`piece-glyph ${piece.color} ${piece.kind}`} kind={piece.kind} x={-15} y={-15} size={30} /></>}
             {protectedSet.has(cell) && <rect className="protected-ring" x={-22} y={-22} width={44} height={44} rx={6} />}
             {(selected === cell || previewCell === cell) && <circle className="selected-ring" r={24} />}
           </g>;
@@ -94,12 +95,14 @@ export default function Board({ game, selected, legal, previewCell, claimedLines
         <g aria-hidden="true" className="crown-markers">{completed.flatMap(({ color, line, index }) => [line.start, line.cells[4]].map((cell, end) => {
           if (cell === undefined) return null;
           const { x, y } = point(cell);
-          return <g key={`${color}-${lineKey(line)}-${end}`} transform={`translate(${x + (index ? 10 : -10)},${y - 17})`}><circle r={10} /><text textAnchor="middle" dominantBaseline="central">♛</text></g>;
+          return <g key={`${color}-${lineKey(line)}-${end}`} transform={`translate(${x + (index ? 10 : -10)},${y - 17})`}><circle r={10} /><PieceIcon kind="crown" x={-7} y={-7} size={14} /></g>;
         }))}</g>
-        <g className="board-coordinates" aria-hidden="true">{axes.map(i => <g key={i}><text x={point(i).x} y={12} textAnchor="middle">{String.fromCharCode(65 + i)}</text><text x={3} y={point(i).x + 4}>{i + 1}</text></g>)}</g>
+        <g className="board-coordinates" aria-hidden="true">{axes.map(i => <g key={i}><text x={point(i).x} y={18} textAnchor="middle">{String.fromCharCode(65 + i)}</text><text x={2} y={point(i).x + 4}>{i + 1}</text></g>)}</g>
       </svg>
     </div>
-    <p className="board-help small muted">교차점 선택은 미리보기입니다. 아래에서 착수를 확정하세요. 확대하면 교차점 간격이 44px 이상이며, 보드 안을 스크롤할 수 있습니다. 방향키 이동 · Enter 선택 · Esc 취소</p>
-    {completed.length > 0 && <ul className="line-legend small">{completed.map(({ color, line, index }) => <li key={`${color}-${lineKey(line)}`}>{colorName[color]} {index + 1}번째 보호 줄: {line.cells.map(cellLabel).join(' · ')} — 왕관 2개</li>)}</ul>}
+    <div className="board-utility"><details className="board-help"><summary>조작·보호 줄</summary><div className="board-help-popover">
+      <p className="small muted">교차점 선택은 미리보기입니다. 착수 확정 버튼으로 확정하세요. 확대하면 교차점 간격이 44px 이상이며, 보드 안을 스크롤할 수 있습니다. 방향키 이동 · Enter 선택 · Esc 취소</p>
+      {completed.length > 0 && <ul className="line-legend small">{completed.map(({ color, line, index }) => <li key={`${color}-${lineKey(line)}`}>{colorName[color]} {index + 1}번째 보호 줄: {line.cells.map(cellLabel).join(' · ')} — 왕관 2개</li>)}</ul>}
+    </div></details></div>
   </section>;
 }
