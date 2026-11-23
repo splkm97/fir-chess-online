@@ -106,7 +106,7 @@ export async function buildApp(config: Config, dependencies: AppDependencies = {
     const root = resolve(import.meta.dirname, '../web');
     if (import.meta.filename.endsWith('.js')) {
       if (!existsSync(resolve(root, 'index.html'))) throw new Error('Built web assets are missing; run npm run build');
-      await app.register(staticFiles, { root, index: false });
+      await app.register(staticFiles, { root });
       app.setNotFoundHandler((request, reply) => {
         if (request.url.startsWith('/api/') || !['GET', 'HEAD'].includes(request.method) || !request.headers.accept?.includes('text/html')) return reply.code(404).send({ code: 'NOT_FOUND' });
         return reply.sendFile('index.html', { cacheControl: false });
