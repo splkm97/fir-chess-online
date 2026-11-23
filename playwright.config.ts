@@ -1,2 +1,15 @@
 import { defineConfig, devices } from '@playwright/test';
-export default defineConfig({ testDir: './e2e', fullyParallel: false, workers: 1, timeout: 45000, use: { baseURL: 'http://127.0.0.1:3100', trace: 'retain-on-failure' }, webServer: { command: 'node dist/server/main.js', url: 'http://127.0.0.1:3100/api/health', env: { PORT: '3100', HOST: '127.0.0.1', PUBLIC_ORIGIN: 'http://127.0.0.1:3100', DATABASE_PATH: 'test-results/e2e.sqlite', NODE_ENV: 'test' }, reuseExistingServer: false }, projects: [{ name: 'chromium', use: { ...devices['Desktop Chrome'] } }, { name: 'firefox', use: { ...devices['Desktop Firefox'] } }, { name: 'webkit', use: { ...devices['Desktop Safari'] } }, { name: 'mobile-chromium', use: { ...devices['Pixel 7'] } }, { name: 'mobile-webkit', use: { ...devices['iPhone 13'] } }] });
+export default defineConfig({
+  testDir: './e2e',
+  fullyParallel: false,
+  workers: 1,
+  timeout: 45000,
+  use: { trace: 'retain-on-failure' },
+  projects: [
+    { name: 'chromium', use: { ...devices['Desktop Chrome'] } },
+    { name: 'firefox', use: { ...devices['Desktop Firefox'] } },
+    { name: 'webkit', use: { ...devices['Desktop Safari'] } },
+    { name: 'mobile-chromium', use: { ...devices['Pixel 7'] } },
+    { name: 'mobile-webkit', use: { ...devices['iPhone 13'] } },
+  ],
+});
