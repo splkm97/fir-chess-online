@@ -22,6 +22,7 @@ export default function Review({ code }: { code: string }) {
   const [saving, setSaving] = useState(false);
   const [dirty, setDirty] = useState(false);
   const [attempt, setAttempt] = useState(0);
+  const [navigationEpoch, setNavigationEpoch] = useState(0);
   const moves = useMoves(code, record?.historyStatus === 'unavailable' ? 0 : record?.moveCount ?? 0);
   const onDirty = useCallback((value: boolean) => setDirty(value), []);
   useEffect(() => {
@@ -52,6 +53,7 @@ export default function Review({ code }: { code: string }) {
   function navigate(next: AnalysisParent) {
     if (pending || (dirty && !window.confirm('저장하지 않은 선택을 버리고 이동할까요?'))) return;
     setCursor(next); setAnalyzing(next.type === 'variation'); setSaveError(null); setDirty(false);
+    setNavigationEpoch(value => value + 1);
   }
   async function persist(input: AnalysisInput) {
     setPending(input); setSaving(true); setSaveError(null);
@@ -61,7 +63,7 @@ export default function Review({ code }: { code: string }) {
       setCursor({ type: 'variation', nodeId: result.node.id }); setPending(null); setAnalyzing(true); setDirty(false);
     } catch (reason) {
       setSaveError(caughtMessage(reason));
-      if (reason instanceof ApiError && reason.status >= 400 && reason.status < 500) setPending(null);
+      if (reason instanceof ApiError && reason.status >= 400 && reason.status < 500 && reason.status !== 408 && reason.status !== 429) setPending(null);
     }
     finally { setSaving(false); }
   }
@@ -88,7 +90,7 @@ export default function Review({ code }: { code: string }) {
         </section>
         {saving && <p role="status">분기 수를 서버에 저장하고 있습니다.</p>}
         {saveError && <div className="error-message" role="alert"><p>{saveError} 저장 여부를 다시 확인해 주세요.</p><button disabled={saving || !pending} onClick={() => { if (pending) void persist(pending); }}>분기 저장 다시 시도</button></div>}
-        <ReviewPosition key={`${key}-${analyzing}`} game={position.game} lastAction={position.lastAction} analyzing={analyzing} busy={Boolean(pending)} onSave={save} onDirty={onDirty} />
+        <ReviewPosition key={`${key}-${analyzing}-${navigationEpoch}`} game={position.game} lastAction={position.lastAction} analyzing={analyzing} busy={Boolean(pending)} onSave={save} onDirty={onDirty} />
         <div className="review-lists"><section className="panel"><h3>본선 수순</h3><MoveList moves={moves.moves} boardSize={record.boardSize} selected={cursor.type === 'mainline' ? cursor.ply : undefined} disabled={Boolean(pending)} onSelect={ply => navigate({ type: 'mainline', ply })} /></section><section className="panel"><h3>내 브랜치</h3><p className="small muted">나에게만 보입니다. 저장된 분기는 다운로드에도 포함됩니다.</p>{!nodes.length && <p>저장된 브랜치가 없습니다.</p>}<ul className="variation-list">{nodes.map(node => <li key={node.id}><button disabled={Boolean(pending)} aria-pressed={cursor.type === 'variation' && cursor.nodeId === node.id} onClick={() => navigate({ type: 'variation', nodeId: node.id })}>분기 {node.sequence} · {colorName[node.actor]} {actionLabel(node.action, record.boardSize)}<span className="small">{node.parent.type === 'mainline' ? `본선 ${node.parent.ply}수에서` : `분기 ${nodes.find(parent => parent.id === (node.parent.type === 'variation' ? node.parent.nodeId : ''))?.sequence ?? '?'}에서`}</span></button></li>)}</ul></section></div>
       </> : <p role="alert">{position && !position.ok ? position.message : '수순을 복기할 수 없습니다.'}</p>}
   </section>;
