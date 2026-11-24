@@ -3,7 +3,7 @@ import {startMatch,place,snapshot} from './helpers.ts';
 import { commandSchema, serverMessageSchema } from '../src/protocol/messages.ts';
 test('네트워크 단절 후 페이지 재진입으로 같은 경기와 자원을 복구한다',async({page,browser})=>{
  const {white,whiteContext}=await startMatch(page,browser);try{
- await place(page,0,'black');await place(white,399,'white');
+ await place(page,0,'black');await place(white,360,'white');
  await page.getByRole('button',{name:'군사 배치',exact:true}).click();
  await page.locator('[data-cell="2"]').click();
  await expect(page.getByRole('button',{name:'착수 확정',exact:true})).toBeEnabled();
@@ -16,8 +16,9 @@ test('네트워크 단절 후 페이지 재진입으로 같은 경기와 자원�
  const after=await snapshot(page);
  expect(after.you).toBe('black');expect(after.game).toEqual(before.game);
  expect(after.disconnectRemainingMs.black).toBeLessThan(180000);
- expect(after.turnRemainingMs).toBeGreaterThan(0);
- expect(after.turnRemainingMs).toBeLessThanOrEqual(before.turnRemainingMs);
+ expect(after.clockRemainingMs?.black).toBeGreaterThan(0);
+ expect(after.clockRemainingMs?.black).toBeLessThanOrEqual(before.clockRemainingMs!.black);
+ expect(after.clockRemainingMs?.white).toBe(before.clockRemainingMs?.white);
  await expect(page.getByRole('button',{name:'착수 확정',exact:true})).toBeDisabled();
  }finally{await page.context().setOffline(false);await whiteContext.close();}
 });
@@ -54,7 +55,7 @@ test('ACK 유실 뒤 같은 요청 ID를 재전송하고 식량을 한 번만 �
     expect(new Set(sentIds).size).toBe(1);
     const state = await snapshot(page);
     expect(state.game?.players.black).toMatchObject({ food: 1, soldiersInReserve: 19 });
-    await place(white, 399, 'white');
+    await place(white, 360, 'white');
     await place(page, 1, 'black');
     expect((await snapshot(page)).game?.players.black.food).toBe(2);
   } finally { await whiteContext.close(); }

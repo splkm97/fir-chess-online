@@ -1,6 +1,8 @@
 import { randomBytes } from 'node:crypto';
 import type { Clock } from './clock.ts';
-import { DISCONNECT_MS, TURN_MS, WAITING_MS } from './clock.ts';
+import { DISCONNECT_MS, SESSION_MS, WAITING_MS } from './clock.ts';
+import { timeControlInputSchema } from '../protocol/messages.ts';
+import type { TimeControlInput } from '../protocol/messages.ts';
 import { ServiceError } from './store.ts';
 import type { Session, Store, StoredRoom } from './store.ts';
 import type { Color } from '../game/types.ts';
@@ -15,20 +17,24 @@ export function requireRoom(store: Store, code: string, clock: Clock): StoredRoo
   const room = store.room(code);
   if (!room) throw new ServiceError('ROOM_NOT_FOUND', 404);
   if (room.status === 'waiting' && room.createdAt + WAITING_MS <= clock.wallMs()) throw new ServiceError('ROOM_EXPIRED', 410);
+  if (room.endedAt !== null && room.endedAt + SESSION_MS <= clock.wallMs()) throw new ServiceError('ROOM_EXPIRED', 410);
   return room;
 }
 export function createLobby(store: Store, clock: Clock, changed: (code: string) => void) {
   return {
-    create(session: Session): string {
+    create(session: Session, input: TimeControlInput): string {
+      const timeControl = timeControlInputSchema.parse(input);
       return store.transaction(() => {
         const existing = store.currentRoom(session.id, clock.wallMs());
         if (existing) return existing;
         for (;;) {
           const code = Array.from(randomBytes(12), byte => ALPHABET[byte & 31]).join('');
           const room: StoredRoom = {
-            version: 1, code, revision: 0, status: 'waiting',
+            version: 2, code, revision: 0, status: 'waiting',
             players: { black: { sessionId: session.id, nickname: session.nickname, ready: false, connected: false }, white: null },
-            game: null, deadlineMonoMs: null, turnRemainingMs: TURN_MS,
+            game: null, deadlineMonoMs: null, timeControl: { kind: 'fischer', ...timeControl },
+            clockRemainingMs: { black: timeControl.baseMs, white: timeControl.baseMs }, turnElapsedMs: 0,
+            moveCount: 0, lastMove: null, historyStatus: 'native', historyError: null, clockAccuracy: 'exact',
             disconnectRemainingMs: { black: DISCONNECT_MS, white: DISCONNECT_MS },
             disconnectedSince: { black: null, white: null }, abortReason: null,
             createdAt: clock.wallMs(), endedAt: null,

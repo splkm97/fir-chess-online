@@ -16,7 +16,7 @@ describe('SQLite store', () => {
     const ack = f.match.command(f.code, f.black.id, command);
     const db = new Database(f.path);
     expect(db.pragma('journal_mode', { simple: true })).toBe('wal');
-    expect(db.pragma('user_version', { simple: true })).toBe(1);
+    expect(db.pragma('user_version', { simple: true })).toBe(2);
     expect(() => f.store.insert({ ...f.store.room(f.code)!, code: '000000000000', players: { black: { sessionId: 'missing', nickname: 'x', ready: false, connected: false }, white: null } })).toThrow();
     db.close(); f.match.close(); f.store.close();
     const reopened = openStore(f.path);
@@ -38,7 +38,7 @@ describe('SQLite store', () => {
     const f = setup(), room = f.store.room(f.code)!;
     expect(() => f.store.save({ ...room, revision: room.revision + 1 }, room.revision - 1)).toThrow();
     const lobby = createLobby(f.store, f.clock, f.match.notify);
-    const otherCode = lobby.create(f.stranger);
+    const otherCode = lobby.create(f.stranger, { baseMs: 60_000, incrementMs: 0 });
     const id = randomUUID(); f.store.addSession(id, id, 'fourth', f.clock.wallMs());
     expect(lobby.join({ id, nickname: 'fourth', expiresAt: 0 }, otherCode)).toBe(otherCode);
     expect(() => lobby.join(f.white, otherCode)).not.toThrow(); // Existing membership redirects, never takes a second seat.
@@ -50,7 +50,7 @@ describe('SQLite store', () => {
     const f = setup(); f.clock.advance(WAITING_MS, false);
     expect(f.store.cleanup(f.clock.wallMs())).toEqual([f.code]);
     const lobby = createLobby(f.store, f.clock, f.match.notify);
-    f.code = lobby.create(f.black); lobby.join(f.white, f.code); f.start();
+    f.code = lobby.create(f.black, { baseMs: 60_000, incrementMs: 0 }); lobby.join(f.white, f.code); f.start();
     const command = action(f); f.match.command(f.code, f.black.id, command);
     f.clock.advance(60_000); expect(f.store.room(f.code)?.status).toBe('finished');
     f.clock.advance(SESSION_MS, false);
@@ -65,4 +65,23 @@ describe('SQLite store', () => {
     expect(aborted.game?.board[0]?.color).toBe('black');
     f.store.recover(f.clock.wallMs()); expect(f.store.room(f.code)).toEqual(aborted);
   });
+});
+
+it.each(['match_moves', 'command_receipts'])('atomically rolls banks, lastMove, journal and receipt back when %s insertion fails', table => {
+  fixture = serverFixture({ baseMs: 90_000, incrementMs: 5000 }); const f = fixture; f.start();
+  const db = new Database(f.path);
+  try {
+    f.clock.advance(12_000, false);
+    const before = f.store.room(f.code), command = action(f);
+    db.exec(`CREATE TRIGGER reject_insert BEFORE INSERT ON ${table} BEGIN SELECT RAISE(FAIL,'journal commit rejected'); END`);
+    expect(() => f.match.command(f.code, f.black.id, command)).toThrow('journal commit rejected');
+    expect(f.store.room(f.code)).toEqual(before);
+    expect(f.store.moves(f.code, 0, 200)).toEqual([]);
+    expect(f.store.receipt(f.code, f.black.id, command.commandId)).toBeUndefined();
+    db.exec('DROP TRIGGER reject_insert');
+    f.clock.advance(1000, false); f.match.command(f.code, f.black.id, command);
+    expect(f.store.room(f.code)).toMatchObject({ moveCount: 1, lastMove: { ply: 1, actor: 'black', action: command.action }, clockRemainingMs: { black: 82_000, white: 90_000 } });
+    expect(f.store.moves(f.code, 0, 200)).toHaveLength(1);
+    expect(f.store.moves(f.code, 0, 200)[0]?.elapsedMs).toBe(13_000);
+  } finally { db.close(); }
 });

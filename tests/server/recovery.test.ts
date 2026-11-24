@@ -55,7 +55,7 @@ async function game(address: string) {
     return cookie;
   }
   const blackCookie = await login('흑'), whiteCookie = await login('백');
-  const { code } = roomCreatedSchema.parse(await (await request(address, '/api/rooms', blackCookie, {})).json());
+  const { code } = roomCreatedSchema.parse(await (await request(address, '/api/rooms', blackCookie, { timeControl: { baseMs: 60_000, incrementMs: 0 } })).json());
   await request(address, `/api/rooms/${code}/join`, whiteCookie, {});
   const black = await peer(address, code, blackCookie), white = await peer(address, code, whiteCookie); clients.push(black, white);
   let snapshot = roomSchema.parse(await (await request(address, `/api/rooms/${code}`, blackCookie)).json());
@@ -63,7 +63,7 @@ async function game(address: string) {
   snapshot = roomSchema.parse(await (await request(address, `/api/rooms/${code}`, whiteCookie)).json());
   await readyPeer(white, snapshot.revision);
   snapshot = roomSchema.parse(await (await request(address, `/api/rooms/${code}`, blackCookie)).json());
-  const command: Command = { type: 'action', protocolVersion: 1, commandId: randomUUID(), expectedRevision: snapshot.revision, action: { type: 'placeSoldier', at: 22 }, claimedLines: [] };
+  const command: Command = { type: 'action', protocolVersion: 2, commandId: randomUUID(), expectedRevision: snapshot.revision, action: { type: 'placeSoldier', at: 22 }, claimedLines: [] };
   black.send(command); await black.next(message => message.type === 'ack' && message.commandId === command.commandId);
   return { code, blackCookie, black, white, command };
 }
@@ -71,9 +71,9 @@ it('aborts active and paused games across a real killed process, retaining board
   fixture = serverFixture(); const f = fixture;
   f.start(); const finishedCommand = action(f); f.match.command(f.code, f.black.id, finishedCommand); f.clock.advance(60_000);
   const finished = f.store.room(f.code);
-  const lobby = createLobby(f.store, f.clock, f.match.notify), waiting = lobby.create(f.stranger);
+  const lobby = createLobby(f.store, f.clock, f.match.notify), waiting = lobby.create(f.stranger, { baseMs: 60_000, incrementMs: 0 });
   f.match.connect(waiting, f.stranger.id);
-  f.match.command(waiting, f.stranger.id, { type: 'ready', protocolVersion: 1, commandId: randomUUID(), expectedRevision: f.store.room(waiting)!.revision });
+  f.match.command(waiting, f.stranger.id, { type: 'ready', protocolVersion: 2, commandId: randomUUID(), expectedRevision: f.store.room(waiting)!.revision });
   f.match.close(); f.store.close();
   const first = await launch(f.path);
   const active = await game(first.address), paused = await game(first.address);

@@ -5,7 +5,7 @@ import websocket from '@fastify/websocket';
 import { resolve } from 'node:path';
 import { existsSync } from 'node:fs';
 import { z } from 'zod';
-import { httpErrorSchema, roomCreatedSchema, roomSchema, sessionInputSchema, sessionSchema } from '../protocol/messages.ts';
+import { createRoomInputSchema, httpErrorSchema, roomCreatedSchema, roomSchema, sessionInputSchema, sessionSchema } from '../protocol/messages.ts';
 import type { Config } from './config.ts';
 import { realClock } from './clock.ts';
 import type { Clock } from './clock.ts';
@@ -16,6 +16,7 @@ import { createLobby } from './lobby.ts';
 import { createMatchService } from './match.ts';
 import type { MatchService } from './match.ts';
 import { registerSockets } from './socket.ts';
+import { registerRecords } from './records.ts';
 
 export interface AppDependencies { store?: Store; clock?: Clock; match?: MatchService }
 
@@ -82,10 +83,10 @@ export async function buildApp(config: Config, dependencies: AppDependencies = {
       const session = sessions.require(request, reply);
       return { nickname: session.nickname, roomCode: store.latestRoom(session.id, clock.wallMs()) ?? null };
     });
-    app.post('/api/rooms', { schema: { body: emptyBody, response: responses(roomCreatedSchema) } }, async (request, reply) => {
+    app.post('/api/rooms', { schema: { body: z.toJSONSchema(createRoomInputSchema, { target: 'draft-7' }), response: responses(roomCreatedSchema) } }, async (request, reply) => {
       const session = sessions.require(request, reply);
       rateLimit(`room:${session.id}`, 30);
-      return { code: lobby.create(session) };
+      return { code: lobby.create(session, createRoomInputSchema.parse(request.body).timeControl) };
     });
     app.post<{ Params: { code: string } }>('/api/rooms/:code/join', { schema: { params, body: emptyBody, response: responses(roomCreatedSchema) } }, async (request, reply) => {
       const session = sessions.require(request, reply);
@@ -93,6 +94,7 @@ export async function buildApp(config: Config, dependencies: AppDependencies = {
       return { code: lobby.join(session, request.params.code) };
     });
     app.get<{ Params: { code: string } }>('/api/rooms/:code', { schema: { params, response: responses(roomSchema) } }, async (request, reply) => match.snapshot(request.params.code, sessions.require(request, reply).id));
+    registerRecords(app, store, clock, (request, reply) => sessions.require(request, reply));
     const transport = registerSockets(app, store, match, clock, request => sessions.require(request), config.origin);
     closeSockets = transport.close;
     function cleanup() {

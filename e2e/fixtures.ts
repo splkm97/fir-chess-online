@@ -6,8 +6,8 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 
-export const test = base.extend<object, { appUrl: string }>({
-  appUrl: [async ({}, use) => {
+export const test = base.extend<{ appUrl: string }>({
+  appUrl: async ({}, use) => {
     const reservation = createServer();
     reservation.listen(0, '127.0.0.1');
     await once(reservation, 'listening');
@@ -46,7 +46,7 @@ export const test = base.extend<object, { appUrl: string }>({
       }
       await rm(directory, { recursive: true, force: true });
     }
-  }, { scope: 'worker' }],
+  },
   baseURL: async ({ appUrl }, use) => { await use(appUrl); },
 });
 export { expect };

@@ -1,9 +1,15 @@
-import type { Action, Color, GameResultReason, PieceKind } from '../game/types.ts';
-import { cellLabel } from '../game/types.ts';
+import type { Action, BoardSize, Color, GameResultReason, PieceKind } from '../game/types.ts';
+import { cellLabel, SIZE } from '../game/types.ts';
 export const colorName: Record<Color, string> = { black: '흑', white: '백' };
 export const pieceName: Record<PieceKind, string> = { soldier: '군사', rook: '룩', bishop: '비숍', knight: '나이트', queen: '퀸' };
 export const resultReason: Record<GameResultReason, string> = { 'two-lines': '오목 두 줄을 완성했습니다.', 'no-legal-action': '상대가 둘 수 있는 수가 없습니다.', 'turn-timeout': '상대의 착수 시간이 끝났습니다.', 'disconnect-timeout': '상대의 누적 재접속 대기 시간이 끝났습니다.' };
 const errors: Record<string, string> = {
+  UNAUTHENTICATED: '이 기보를 저장한 브라우저의 세션이 필요합니다. 쿠키를 지웠다면 닉네임만으로 복구할 수 없습니다.',
+  RECORD_EXPIRED: '대국 종료 후 7일이 지나 기보 보관 기간이 끝났습니다.',
+  RECORD_NOT_FOUND: '기보를 찾을 수 없거나 접근할 수 없습니다.',
+  HISTORY_UNAVAILABLE: '과거 수순을 복원하지 못했습니다. 보존된 최종 보드만 확인할 수 있습니다.',
+  ANALYSIS_NOT_ALLOWED: '종료되거나 중단된 대국에서만 분기를 둘 수 있습니다.',
+  NODE_ID_REUSED: '이미 다른 수로 저장된 분기입니다. 기보를 다시 열어 확인해 주세요.',
   UNAUTHORIZED: '세션이 만료되었습니다. 새로고침한 뒤 닉네임을 다시 입력하세요.',
   SESSION_REQUIRED: '닉네임을 입력해 세션을 먼저 만들어 주세요.',
   FORBIDDEN: '이 방의 참가자가 아닙니다. 초대 코드로 입장해 주세요.',
@@ -40,7 +46,7 @@ const errors: Record<string, string> = {
   STORAGE_ERROR: '브라우저에 미확정 요청을 보관할 수 없어 전송하지 않았습니다. 저장 공간과 개인정보 보호 설정을 확인해 주세요.',
 };
 export function errorText(code: string): string { return errors[code] ?? `요청을 처리하지 못했습니다 (${code}). 현재 상태를 확인한 뒤 다시 시도해 주세요.`; }
-export function actionLabel(action: Action): string {
-  if (action.type === 'moveChess') return `${cellLabel(action.from)} → ${cellLabel(action.to)} 이동 · 식량 2 사용`;
-  return `${cellLabel(action.at)} ${action.type === 'placeSoldier' ? '군사 배치 · 식량 1 획득 (최대 5)' : `${pieceName[action.kind]} 배치 · 식량 3 사용`}`;
+export function actionLabel(action: Action, size: BoardSize = SIZE): string {
+  if (action.type === 'moveChess') return `${cellLabel(action.from, size)} → ${cellLabel(action.to, size)} 이동 · 식량 2 사용`;
+  return `${cellLabel(action.at, size)} ${action.type === 'placeSoldier' ? '군사 배치 · 식량 1 획득 (최대 5)' : `${pieceName[action.kind]} 배치 · 식량 3 사용`}`;
 }

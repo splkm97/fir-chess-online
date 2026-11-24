@@ -16,7 +16,7 @@ export const realClock: Clock = {
   },
 };
 
-export const TURN_MS = 60_000;
+export const DEFAULT_TIME_CONTROL = { baseMs: 600_000, incrementMs: 5000 } as const;
 export const DISCONNECT_MS = 180_000;
 export const SESSION_MS = 7 * 24 * 60 * 60 * 1000;
 export const WAITING_MS = 30 * 60 * 1000;

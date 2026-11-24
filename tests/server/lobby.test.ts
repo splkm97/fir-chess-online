@@ -24,12 +24,13 @@ describe('invitation lobby', () => {
     const { black, white, code } = await roomWithTwo(app);
     const revision = store.room(code)?.revision;
     for (const cookie of [black, white]) {
-      expect((await app.inject({ method: 'POST', url: '/api/rooms', headers: { cookie }, payload: {} })).json()).toEqual({ code });
+      expect((await app.inject({ method: 'POST', url: '/api/rooms', headers: { cookie }, payload: { timeControl: { baseMs: 90_000, incrementMs: 5000 } } })).json()).toEqual({ code });
       expect((await app.inject({ method: 'POST', url: `/api/rooms/${code}/join`, headers: { cookie }, payload: {} })).json()).toEqual({ code });
     }
     expect(store.room(code)?.revision).toBe(revision);
+    expect(store.room(code)?.timeControl).toEqual({ kind: 'fischer', baseMs: 60_000, incrementMs: 0 });
     const stranger = await login(app);
-    const other = roomCreatedSchema.parse((await app.inject({ method: 'POST', url: '/api/rooms', headers: { cookie: stranger }, payload: {} })).json());
+    const other = roomCreatedSchema.parse((await app.inject({ method: 'POST', url: '/api/rooms', headers: { cookie: stranger }, payload: { timeControl: { baseMs: 60_000, incrementMs: 0 } } })).json());
     expect((await app.inject({ method: 'POST', url: `/api/rooms/${other.code}/join`, headers: { cookie: white }, payload: {} })).json()).toEqual({ code });
     expect(store.room(other.code)?.players.white).toBeNull();
     expect((await app.inject({ url: '/api/session', headers: { cookie: white } })).json().roomCode).toBe(code);
@@ -44,7 +45,7 @@ describe('invitation lobby', () => {
   });
   it('requires authenticated JSON room mutations and rejects client-selected seats', async () => {
     fixture = await httpFixture(); const { app } = fixture;
-    expect((await app.inject({ method: 'POST', url: '/api/rooms', payload: {} })).statusCode).toBe(401);
+    expect((await app.inject({ method: 'POST', url: '/api/rooms', payload: { timeControl: { baseMs: 60_000, incrementMs: 0 } } })).statusCode).toBe(401);
     const cookie = await login(app);
     expect((await app.inject({ method: 'POST', url: '/api/rooms', headers: { cookie }, payload: { playerId: 'other', color: 'white' } })).statusCode).toBe(400);
     expect((await app.inject({ method: 'POST', url: '/api/rooms', headers: { cookie, origin: 'https://evil.example' }, payload: {} })).statusCode).toBe(403);

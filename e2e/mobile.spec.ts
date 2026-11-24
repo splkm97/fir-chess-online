@@ -6,8 +6,8 @@ test('확대·이동·키보드 선택 후 명시적으로 착수를 확정한�
  await page.setViewportSize({width:390,height:844});
  await page.getByRole('button',{name:'군사 배치',exact:true}).click();
  await page.getByRole('button',{name:'확대',exact:true}).click();
- await page.locator('[data-cell="399"]').click();
- expect((await snapshot(page)).game?.board[399]).toBeNull();
+ await page.locator('[data-cell="360"]').click();
+ expect((await snapshot(page)).game?.board[360]).toBeNull();
  await page.getByRole('button',{name:'선택 취소',exact:true}).click();
  await page.getByRole('button',{name:'군사 배치',exact:true}).click();
  await page.locator('[data-cell="0"]').focus();

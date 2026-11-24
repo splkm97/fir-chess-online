@@ -1,20 +1,20 @@
 import { CHESS_KINDS, SIZE, opposite, validCell } from './types.ts';
-import type { Action, ApplyResult, Color, Failure, GameState, Line, PreviewResult, Supply } from './types.ts';
+import type { Action, ApplyResult, BoardSize, Color, Failure, GameState, Line, PreviewResult, Supply } from './types.ts';
 import { canMove, protectedCells } from './moves.ts';
 import { findLines, lineKey, linesConflict, remainingLines } from './lines.ts';
 function supply(): Supply { return { food: 0, soldiersInReserve: 20, chess: { rook: 'reserve', bishop: 'reserve', knight: 'reserve', queen: 'reserve' } }; }
-export function createGame(): GameState { return { status: 'playing', turn: 'black', board: Array.from({ length: SIZE * SIZE }, () => null), players: { black: supply(), white: supply() }, completedLines: { black: [], white: [] } }; }
+export function createGame(boardSize: BoardSize = SIZE): GameState { return { boardSize, status: 'playing', turn: 'black', board: Array.from({ length: boardSize * boardSize }, () => null), players: { black: supply(), white: supply() }, completedLines: { black: [], white: [] } }; }
 function failure(code: Failure['code']): Failure { return { ok: false, code }; }
 export function previewAction(state: GameState, actor: Color, action: Action): PreviewResult {
   if (state.status !== 'playing') return failure('GAME_FINISHED');
   if (state.turn !== actor) return failure('NOT_YOUR_TURN');
   const at = action.type === 'moveChess' ? action.to : action.at;
-  if (!validCell(at) || (action.type === 'moveChess' && !validCell(action.from))) return failure('OUT_OF_BOUNDS');
+  if (!validCell(at, state.boardSize) || (action.type === 'moveChess' && !validCell(action.from, state.boardSize))) return failure('OUT_OF_BOUNDS');
   const own = state.players[actor];
   if (action.type === 'moveChess') {
     const protectedSet = protectedCells(state);
     if (protectedSet.has(action.from) || protectedSet.has(at)) return failure('PROTECTED');
-    if (!canMove(state.board, action.from, at, actor, protectedSet)) return failure('INVALID_MOVE');
+    if (!canMove(state.board, action.from, at, actor, protectedSet, state.boardSize)) return failure('INVALID_MOVE');
     if (own.food < 2) return failure('NO_FOOD');
   } else {
     if (state.board[at] != null) return failure('OCCUPIED');
@@ -37,10 +37,10 @@ export function hasLegalAction(state: GameState, color: Color): boolean {
   if (state.board.some(piece => piece === null) && (supply.soldiersInReserve > 0 || (supply.food >= 3 && CHESS_KINDS.some(kind => supply.chess[kind] === 'reserve')))) return true;
   if (supply.food < 2) return false;
   const protectedSet = protectedCells(state);
-  for (let from = 0; from < SIZE * SIZE; from++) {
+  for (let from = 0; from < state.boardSize * state.boardSize; from++) {
     const piece = state.board[from];
     if (!piece || piece.color !== color || piece.kind === 'soldier' || protectedSet.has(from)) continue;
-    for (let to = 0; to < SIZE * SIZE; to++) if (canMove(state.board, from, to, color, protectedSet)) return true;
+    for (let to = 0; to < state.boardSize * state.boardSize; to++) if (canMove(state.board, from, to, color, protectedSet, state.boardSize)) return true;
   }
   return false;
 }
@@ -56,7 +56,7 @@ export function applyAction(state: GameState, actor: Color, action: Action, clai
   }
   if (selected.length < needed && remainingLines(preview.candidates, selected).length > 0) return failure('LINES_REQUIRED');
   next.completedLines[actor].push(...selected);
-  const boardState = { board: next.board, players: next.players, completedLines: next.completedLines };
+  const boardState = { boardSize: next.boardSize, board: next.board, players: next.players, completedLines: next.completedLines };
   if (next.completedLines[actor].length >= 2) return { ok: true, state: { ...boardState, status: 'finished', winner: actor, reason: 'two-lines' } };
   const opponent = opposite(actor);
   if (!hasLegalAction(next, opponent)) return { ok: true, state: { ...boardState, status: 'finished', winner: actor, reason: 'no-legal-action' } };

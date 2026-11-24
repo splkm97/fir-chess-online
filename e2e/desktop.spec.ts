@@ -57,8 +57,8 @@ test('PC 전체 보기에서 판 전체·자원·확정이 창 안에 들어온�
     expect(fontRequests.length).toBeGreaterThan(0);
     expect(fontRequests.every(url => new URL(url).origin === new URL(page.url()).origin)).toBe(true);
     await page.setViewportSize({ width: 1366, height: 768 });
-    await place(page, 399, 'black');
-    expect((await snapshot(page)).game?.board[399]).toEqual({ color: 'black', kind: 'soldier' });
+    await place(page, 360, 'black');
+    expect((await snapshot(page)).game?.board[360]).toEqual({ color: 'black', kind: 'soldier' });
     await expect(page.getByText('백의 차례', { exact: true })).toBeVisible();
     await expect(page.locator('.pending-summary')).not.toBeVisible();
     await page.screenshot({ path: testInfo.outputPath('cockpit-desktop.png'), fullPage: true });
@@ -73,7 +73,7 @@ test('장목 구간을 선택해도 확정 버튼의 위치와 판 전체 보기
     const cells = [0, 1, 2, 4, 5];
     for (let index = 0; index < cells.length; index++) {
       await place(page, cells[index]!, 'black');
-      await place(white, 399 - index * 2, 'white');
+      await place(white, 360 - index * 2, 'white');
     }
     const confirm = page.getByRole('button', { name: '착수 확정', exact: true });
     const before = await confirm.boundingBox();

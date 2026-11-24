@@ -2,7 +2,10 @@ import Database from 'better-sqlite3';
 import { mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { z } from 'zod';
-import { gameSchema } from '../protocol/messages.ts';
+import { clockPairSchema, gameSchema, lastMoveSchema, timeControlSchema } from '../protocol/messages.ts';
+import { analysisNodeSchema, moveRecordSchema } from '../protocol/records.ts';
+import type { AnalysisNode, MoveRecord } from '../protocol/records.ts';
+import { migrateV1 } from './migrations.ts';
 import { COLORS } from '../game/types.ts';
 import { SCHEMA_SQL, SCHEMA_VERSION } from './schema.ts';
 import { SESSION_MS, WAITING_MS } from './clock.ts';
@@ -10,11 +13,14 @@ import { SESSION_MS, WAITING_MS } from './clock.ts';
 const seatSchema = z.strictObject({ sessionId: z.string(), nickname: z.string(), ready: z.boolean(), connected: z.boolean() });
 const timePair = z.strictObject({ black: z.number().nonnegative(), white: z.number().nonnegative() });
 export const storedRoomSchema = z.strictObject({
-  version: z.literal(1), code: z.string(), revision: z.number().int().nonnegative(),
+  version: z.literal(2), code: z.string(), revision: z.number().int().nonnegative(),
   status: z.enum(['waiting', 'active', 'paused', 'finished', 'aborted']),
   players: z.strictObject({ black: seatSchema, white: seatSchema.nullable() }),
   game: gameSchema.nullable(), deadlineMonoMs: z.number().nullable(),
-  turnRemainingMs: z.number().nonnegative(), disconnectRemainingMs: timePair,
+  timeControl: timeControlSchema, clockRemainingMs: clockPairSchema.nullable(),
+  turnElapsedMs: z.number().nonnegative(), moveCount: z.number().int().nonnegative(), lastMove: lastMoveSchema.nullable(),
+  historyStatus: z.enum(['native', 'reconstructed', 'unavailable']), historyError: z.string().nullable(),
+  clockAccuracy: z.enum(['exact', 'checkpoint', 'unknown']), disconnectRemainingMs: timePair,
   disconnectedSince: z.strictObject({ black: z.number().nullable(), white: z.number().nullable() }),
   abortReason: z.enum(['server-interrupted', 'both-disconnected']).nullable(),
   createdAt: z.number(), endedAt: z.number().nullable(),
@@ -32,7 +38,13 @@ export class ServiceError extends Error {
 export interface Store {
   room(code: string): StoredRoom | undefined;
   rooms(): StoredRoom[];
-  save(room: StoredRoom, expectedRevision: number, receipt?: CommandReceipt): void;
+  save(room: StoredRoom, expectedRevision: number, receipt?: CommandReceipt, move?: MoveRecord): void;
+  recordRooms(owner: string, now: number, before: { endedAt: number; code: string } | null, limit: number): StoredRoom[];
+  moves(code: string, afterPly: number, limit: number): MoveRecord[];
+  analysis(code: string, owner: string, after: number, limit: number): AnalysisNode[];
+  analysisNode(code: string, owner: string, id: string): AnalysisNode | undefined;
+  nextAnalysisSequence(code: string, owner: string): number;
+  appendAnalysis(code: string, owner: string, node: AnalysisNode): void;
   transaction<T>(operation: () => T): T;
   insert(room: StoredRoom): void;
   receipt(code: string, sessionId: string, commandId: string): Receipt | undefined;
@@ -55,6 +67,7 @@ export function openStore(path: string): Store {
     db.pragma('busy_timeout = 5000');
     const version = db.pragma('user_version', { simple: true });
     if (version === 0) db.transaction(() => { db.exec(SCHEMA_SQL); db.pragma(`user_version = ${SCHEMA_VERSION}`); })();
+    else if (version === 1) migrateV1(db, Date.now());
     else if (version !== SCHEMA_VERSION) throw new Error(`Unsupported database schema version: ${String(version)}`);
   } catch (error) { db.close(); throw error; }
 
@@ -64,6 +77,14 @@ export function openStore(path: string): Store {
   const updateRoom = db.prepare('UPDATE rooms SET black_session=?,white_session=?,status=?,revision=?,snapshot=?,ended_at=? WHERE code=? AND revision=?');
   const getReceipt = db.prepare<[string, string, string], { request: string; applied_revision: number }>('SELECT request,applied_revision FROM command_receipts WHERE room_code=? AND session_id=? AND command_id=?');
   const insertReceipt = db.prepare('INSERT INTO command_receipts(room_code,session_id,command_id,request,applied_revision) VALUES(?,?,?,?,?)');
+  const insertMove = db.prepare('INSERT INTO match_moves(room_code,ply,applied_revision,payload) VALUES(?,?,?,?)');
+  const lastPly = db.prepare<[string], { ply: number }>('SELECT COALESCE(MAX(ply),0) AS ply FROM match_moves WHERE room_code=?');
+  const readMoves = db.prepare<[string, number, number], { payload: string }>('SELECT payload FROM match_moves WHERE room_code=? AND ply>? ORDER BY ply LIMIT ?');
+  const readAnalysis = db.prepare<[string, string, number, number], { payload: string }>('SELECT payload FROM analysis_nodes WHERE room_code=? AND owner_session=? AND sequence>? ORDER BY sequence LIMIT ?');
+  const readNode = db.prepare<[string, string, string], { payload: string }>('SELECT payload FROM analysis_nodes WHERE room_code=? AND owner_session=? AND node_id=?');
+  const analysisSequence = db.prepare<[string, string], { next: number }>('SELECT COALESCE(MAX(sequence),0)+1 AS next FROM analysis_nodes WHERE room_code=? AND owner_session=?');
+  const insertNode = db.prepare('INSERT INTO analysis_nodes(room_code,owner_session,node_id,sequence,parent_node,parent_ply,payload) VALUES(?,?,?,?,?,?,?)');
+  const recordRooms = db.prepare<[string, string, number, number | null, number | null, number | null, string | null, number], { snapshot: string }>(`SELECT snapshot FROM rooms WHERE (black_session=? OR white_session=?) AND status IN ('finished','aborted') AND ended_at>? AND (? IS NULL OR ended_at<? OR (ended_at=? AND code<?)) ORDER BY ended_at DESC, code DESC LIMIT ?`);
   const getSession = db.prepare<[string], { id: string; nickname: string; expires_at: number }>('SELECT id,nickname,expires_at FROM sessions WHERE token_hash=?');
   const addSession = db.prepare('INSERT INTO sessions(id,token_hash,nickname,expires_at) VALUES(?,?,?,?)');
   const touchSession = db.prepare('UPDATE sessions SET expires_at=? WHERE id=?');
@@ -76,12 +97,19 @@ export function openStore(path: string): Store {
     const row = getRoom.get(code);
     return row ? storedRoomSchema.parse(JSON.parse(row.snapshot)) : undefined;
   }
-  function save(next: StoredRoom, expectedRevision: number, receipt?: CommandReceipt) {
+  function save(next: StoredRoom, expectedRevision: number, receipt?: CommandReceipt, move?: MoveRecord) {
     db.transaction(() => {
       const data = storedRoomSchema.parse(next);
       if (data.revision !== expectedRevision && data.revision !== expectedRevision + 1) throw new Error('Invalid revision transition');
       const result = updateRoom.run(data.players.black.sessionId, data.players.white?.sessionId ?? null, data.status, data.revision, JSON.stringify(data), data.endedAt, data.code, expectedRevision);
       if (result.changes !== 1) throw new ServiceError('STALE_REVISION');
+      if (move) {
+        const parsed = moveRecordSchema.parse(move);
+        if (!receipt || parsed.ply !== data.moveCount || JSON.stringify(data.lastMove) !== JSON.stringify({ ply: parsed.ply, actor: parsed.actor, action: parsed.action })) throw new Error('Move journal does not match room checkpoint');
+        const previous = lastPly.get(data.code)!.ply;
+        if (parsed.ply !== previous + 1) throw new Error('Noncontiguous move journal');
+        insertMove.run(data.code, parsed.ply, data.revision, JSON.stringify(parsed));
+      }
       if (receipt) insertReceipt.run(data.code, receipt.sessionId, receipt.commandId, receipt.request, receipt.appliedRevision);
     })();
   }
@@ -89,6 +117,15 @@ export function openStore(path: string): Store {
     room,
     rooms: () => allRooms.all().map(row => storedRoomSchema.parse(JSON.parse(row.snapshot))),
     save,
+    recordRooms(owner, now, before, limit) { return recordRooms.all(owner, owner, now - SESSION_MS, before?.endedAt ?? null, before?.endedAt ?? null, before?.endedAt ?? null, before?.code ?? null, limit).map(row => storedRoomSchema.parse(JSON.parse(row.snapshot))); },
+    moves(code, afterPly, limit) { return readMoves.all(code, afterPly, limit).map(row => moveRecordSchema.parse(JSON.parse(row.payload))); },
+    analysis(code, owner, after, limit) { return readAnalysis.all(code, owner, after, limit).map(row => analysisNodeSchema.parse(JSON.parse(row.payload))); },
+    analysisNode(code, owner, id) { const row = readNode.get(code, owner, id); return row ? analysisNodeSchema.parse(JSON.parse(row.payload)) : undefined; },
+    nextAnalysisSequence(code, owner) { return analysisSequence.get(code, owner)!.next; },
+    appendAnalysis(code, owner, node) {
+      const data = analysisNodeSchema.parse(node);
+      insertNode.run(code, owner, data.id, data.sequence, data.parent.type === 'variation' ? data.parent.nodeId : null, data.parent.type === 'mainline' ? data.parent.ply : null, JSON.stringify(data));
+    },
     transaction<T>(operation: () => T): T { return db.transaction(operation)(); },
     insert(room: StoredRoom) {
       const data = storedRoomSchema.parse(room);
@@ -123,6 +160,7 @@ export function openStore(path: string): Store {
           if (state.status === 'active' || state.status === 'paused') {
             state.status = 'aborted'; state.abortReason = 'server-interrupted'; state.endedAt = now;
             state.deadlineMonoMs = null; state.disconnectedSince = { black: null, white: null };
+            state.clockAccuracy = state.timeControl.kind === 'fischer' ? 'checkpoint' : 'unknown';
           } else if (state.status !== 'waiting' || !COLORS.some(color => state.players[color]?.connected || state.players[color]?.ready)) continue;
           for (const color of COLORS) {
             const seat = state.players[color];

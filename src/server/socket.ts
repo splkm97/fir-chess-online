@@ -75,6 +75,9 @@ export function registerSockets(app: FastifyInstance, store: Store, match: Match
       let value: unknown;
       try { value = JSON.parse(data.toString()); }
       catch { send(connection, { type: 'error', code: 'INVALID_JSON' }); return; }
+      if (typeof value === 'object' && value !== null && 'protocolVersion' in value && value.protocolVersion !== 2) {
+        send(connection, { type: 'error', code: 'PROTOCOL_VERSION_MISMATCH' }); return;
+      }
       const parsed = commandSchema.safeParse(value);
       if (!parsed.success) { send(connection, { type: 'error', code: 'INVALID_COMMAND' }); return; }
       const command = parsed.data;

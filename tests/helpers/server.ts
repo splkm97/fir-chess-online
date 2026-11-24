@@ -13,7 +13,7 @@ import { createLobby } from '../../src/server/lobby.ts';
 import { hashToken } from '../../src/server/session.ts';
 import type { Clock } from '../../src/server/clock.ts';
 import { serverMessageSchema, roomCreatedSchema } from '../../src/protocol/messages.ts';
-import type { Command, ServerMessage } from '../../src/protocol/messages.ts';
+import type { Command, ServerMessage, TimeControlInput } from '../../src/protocol/messages.ts';
 
 export class FakeClock implements Clock {
   mono = 0;
@@ -44,7 +44,7 @@ export interface Fixture {
   black: Session; white: Session; stranger: Session; code: string;
   connect(): void; start(): void; close(): void;
 }
-export function serverFixture(): Fixture {
+export function serverFixture(timeControl: TimeControlInput = { baseMs: 60_000, incrementMs: 0 }): Fixture {
   const directory = mkdtempSync(join(tmpdir(), 'omokchess-server-'));
   const path = join(directory, 'game.sqlite');
   const store = openStore(path), clock = new FakeClock();
@@ -55,7 +55,7 @@ export function serverFixture(): Fixture {
   }
   const black = session('흑'), white = session('백'), stranger = session('흑');
   const lobby = createLobby(store, clock, match.notify);
-  const code = lobby.create(black); lobby.join(white, code);
+  const code = lobby.create(black, timeControl); lobby.join(white, code);
   const fixture: Fixture = {
     directory, path, store, clock, match, black, white, stranger, code,
     connect() { match.connect(fixture.code, black.id); match.connect(fixture.code, white.id); },
@@ -65,10 +65,10 @@ export function serverFixture(): Fixture {
   return fixture;
 }
 export function ready(fixture: Fixture): Command {
-  return { type: 'ready', protocolVersion: 1, commandId: randomUUID(), expectedRevision: fixture.store.room(fixture.code)?.revision ?? 0 };
+  return { type: 'ready', protocolVersion: 2, commandId: randomUUID(), expectedRevision: fixture.store.room(fixture.code)?.revision ?? 0 };
 }
 export function action(fixture: Fixture, at = 0): Extract<Command, { type: 'action' }> {
-  return { type: 'action', protocolVersion: 1, commandId: randomUUID(), expectedRevision: fixture.store.room(fixture.code)?.revision ?? 0, action: { type: 'placeSoldier', at }, claimedLines: [] };
+  return { type: 'action', protocolVersion: 2, commandId: randomUUID(), expectedRevision: fixture.store.room(fixture.code)?.revision ?? 0, action: { type: 'placeSoldier', at }, claimedLines: [] };
 }
 
 export interface HttpFixture { app: FastifyInstance; store: Store; match: MatchService; clock: FakeClock; directory: string; close(): Promise<void> }
@@ -87,9 +87,9 @@ export async function login(app: FastifyInstance, nickname = '플레이어'): Pr
   if (!cookie) throw new Error('Session cookie missing');
   return cookie;
 }
-export async function roomWithTwo(app: FastifyInstance) {
+export async function roomWithTwo(app: FastifyInstance, timeControl: TimeControlInput = { baseMs: 60_000, incrementMs: 0 }) {
   const black = await login(app, '흑'), white = await login(app, '백');
-  const created = await app.inject({ method: 'POST', url: '/api/rooms', payload: {}, headers: { cookie: black } });
+  const created = await app.inject({ method: 'POST', url: '/api/rooms', payload: { timeControl }, headers: { cookie: black } });
   const { code } = roomCreatedSchema.parse(created.json());
   const joined = await app.inject({ method: 'POST', url: `/api/rooms/${code}/join`, payload: {}, headers: { cookie: white } });
   if (joined.statusCode !== 200) throw new Error(joined.body);
@@ -124,7 +124,7 @@ export async function peer(address: string, code: string, cookie: string, origin
   };
 }
 export async function readyPeer(client: Peer, revision: number) {
-  const command: Command = { type: 'ready', protocolVersion: 1, commandId: randomUUID(), expectedRevision: revision };
+  const command: Command = { type: 'ready', protocolVersion: 2, commandId: randomUUID(), expectedRevision: revision };
   client.send(command);
   return client.next(message => message.type === 'ack' && message.commandId === command.commandId);
 }

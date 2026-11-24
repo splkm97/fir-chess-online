@@ -4,14 +4,8 @@ import type { Command, RoomSnapshot } from '../protocol/messages.ts';
 import type { Action, Line } from '../game/types.ts';
 import { api, caughtMessage } from './api.ts';
 import { errorText } from './labels.ts';
+import { commandId } from './command-id.ts';
 
-function commandId(): string {
-  const bytes = crypto.getRandomValues(new Uint8Array(16));
-  bytes[6] = (bytes[6]! & 15) | 64;
-  bytes[8] = (bytes[8]! & 63) | 128;
-  const hex = Array.from(bytes, byte => byte.toString(16).padStart(2, '0')).join('');
-  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
-}
 
 type Connection = 'connecting' | 'connected' | 'reconnecting' | 'replaced' | 'closed' | 'finished';
 type Intent = { type: 'ready' } | { type: 'action'; action: Action; claimedLines: Line[] };
@@ -113,7 +107,7 @@ export function useRoom(code: string) {
     if (intent.type === 'ready' ? latest.status !== 'waiting' : latest.status !== 'active' || latest.game?.status !== 'playing' || latest.game.turn !== latest.you) return false;
     let command: Command;
     try {
-      command = { ...intent, protocolVersion: 1, commandId: commandId(), expectedRevision: latest.revision };
+      command = { ...intent, protocolVersion: 2, commandId: commandId(), expectedRevision: latest.revision };
       sessionStorage.setItem(key, JSON.stringify(command));
     } catch { setError(errorText('STORAGE_ERROR')); return false; }
     pendingRef.current = command; ackRevision.current = null; setPending(command); setError(null);

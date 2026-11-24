@@ -1,8 +1,15 @@
 import { expect, it } from 'vitest';
-import { commandSchema,gameSchema,roomSchema,sessionInputSchema } from '../../src/protocol/messages.ts';
+import { commandSchema,gameSchema,roomSchema,sessionInputSchema,timeControlInputSchema } from '../../src/protocol/messages.ts';
 import { createGame,applyAction } from '../../src/game/engine.ts';
-const command={type:'action',protocolVersion:1,commandId:'00000000-0000-4000-8000-000000000001',expectedRevision:0,action:{type:'placeSoldier',at:0},claimedLines:[]};
-it('accepts a command roundtrip and rejects extra or invalid fields',()=>{expect(commandSchema.parse(JSON.parse(JSON.stringify(command)))).toEqual(command);for(const value of [{...command,playerId:'victim'},{...command,protocolVersion:2},{...command,expectedRevision:-1},{...command,action:{type:'placeSoldier',at:1.5}},{...command,action:{type:'moveChess',from:0,to:400}}]) expect(commandSchema.safeParse(value).success).toBe(false);});
+const command={type:'action',protocolVersion:2,commandId:'00000000-0000-4000-8000-000000000001',expectedRevision:0,action:{type:'placeSoldier',at:0},claimedLines:[]};
+it('accepts a command roundtrip and rejects extra or invalid fields',()=>{expect(commandSchema.parse(JSON.parse(JSON.stringify(command)))).toEqual(command);for(const value of [{...command,playerId:'victim'},{...command,protocolVersion:1},{...command,expectedRevision:-1},{...command,action:{type:'placeSoldier',at:1.5}},{...command,action:{type:'moveChess',from:0,to:361}}]) expect(commandSchema.safeParse(value).success).toBe(false);});
 it('parses actual engine finished output without leaking playing fields',()=>{const state=createGame();state.players.white.soldiersInReserve=0;const result=applyAction(state,'black',{type:'placeSoldier',at:0});if(!result.ok)throw Error(result.code);expect(gameSchema.parse(result.state)).toEqual(result.state);});
-it('rejects secrets in public snapshots',()=>{const room={code:'000000000001',revision:0,status:'waiting',you:'black',players:{black:{nickname:'흑',ready:false,connected:false},white:null},game:null,turnRemainingMs:60000,disconnectRemainingMs:{black:180000,white:180000},serverTime:0,abortReason:null};expect(roomSchema.parse(room)).toEqual(room);expect(roomSchema.safeParse({...room,token:'secret'}).success).toBe(false);});
+it('rejects secrets in public snapshots',()=>{const room={code:'000000000001',revision:0,status:'waiting',you:'black',players:{black:{nickname:'흑',ready:false,connected:false},white:null},game:null,timeControl:{kind:'fischer',baseMs:60000,incrementMs:0},clockRemainingMs:{black:60000,white:60000},moveCount:0,lastMove:null,disconnectRemainingMs:{black:180000,white:180000},serverTime:0,abortReason:null};expect(roomSchema.parse(room)).toEqual(room);expect(roomSchema.safeParse({...room,token:'secret'}).success).toBe(false);});
 it('validates code-point nickname length and rejects controls',()=>{expect(sessionInputSchema.parse({nickname:'  오목  '})).toEqual({nickname:'오목'});for(const nickname of ['', 'a'.repeat(21),'name\nspoof','a\u200bb'])expect(sessionInputSchema.safeParse({nickname}).success).toBe(false);});
+it('bounds Fischer settings and keeps old board coordinates out of live actions', () => {
+  for (const value of [{ baseMs: 1000, incrementMs: 0 }, { baseMs: 10_800_000, incrementMs: 180_000 }]) expect(timeControlInputSchema.parse(value)).toEqual(value);
+  for (const value of [{ baseMs: 0, incrementMs: 0 }, { baseMs: 10_801_000, incrementMs: 0 }, { baseMs: 1500, incrementMs: 0 }, { baseMs: 1000, incrementMs: 181_000 }, { baseMs: 1000, incrementMs: -1000 }, { baseMs: 1000, incrementMs: Infinity }]) expect(timeControlInputSchema.safeParse(value).success).toBe(false);
+  expect(commandSchema.safeParse({ ...command, action: { type: 'placeSoldier', at: 360 } }).success).toBe(true);
+  expect(gameSchema.parse(createGame(20)).board).toHaveLength(400);
+  expect(gameSchema.safeParse({ ...createGame(), board: Array(400).fill(null) }).success).toBe(false);
+});

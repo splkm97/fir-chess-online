@@ -25,7 +25,7 @@ async function setup(start = true) {
   return { f, address, room, black, white };
 }
 function soldier(revision: number, at = 0): Extract<Command, { type: 'action' }> {
-  return { protocolVersion: 1, commandId: randomUUID(), expectedRevision: revision, type: 'action', action: { type: 'placeSoldier', at }, claimedLines: [] };
+  return { protocolVersion: 2, commandId: randomUUID(), expectedRevision: revision, type: 'action', action: { type: 'placeSoldier', at }, claimedLines: [] };
 }
 describe('real WebSocket transport', () => {
   it('starts two ready peers and broadcasts an authoritative committed action', async () => {
@@ -103,13 +103,13 @@ describe('real WebSocket transport', () => {
       db.exec('DROP TRIGGER fail_disconnect');
       f.clock.advance(1000);
       expect(f.store.room(room.code)).toMatchObject({
-        status: 'paused', turnRemainingMs: 59_000,
+        status: 'paused', clockRemainingMs: { black: 59_000, white: 60_000 },
         disconnectedSince: { black: 1000 }, players: { black: { connected: false } },
       });
       f.clock.advance(60_000, false);
       const returned = await peer(address, room.code, room.black); peers.push(returned);
       const state = f.match.snapshot(room.code, f.store.room(room.code)!.players.black.sessionId);
-      expect(state).toMatchObject({ status: 'active', turnRemainingMs: 59_000, disconnectRemainingMs: { black: 119_000 } });
+      expect(state).toMatchObject({ status: 'active', clockRemainingMs: { black: 59_000, white: 60_000 }, disconnectRemainingMs: { black: 119_000 } });
       expect(state.game?.status).toBe('playing');
     } finally {
       db.exec('DROP TRIGGER IF EXISTS fail_disconnect'); db.close();

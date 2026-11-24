@@ -4,7 +4,7 @@ import type { Color } from '../game/types.ts';
 import { commandSchema, roomSchema } from '../protocol/messages.ts';
 import type { Command, RoomSnapshot, ServerMessage } from '../protocol/messages.ts';
 import type { Clock } from './clock.ts';
-import { TURN_MS } from './clock.ts';
+import type { MoveRecord } from '../protocol/records.ts';
 import { memberColor, requireRoom } from './lobby.ts';
 import { ServiceError } from './store.ts';
 import type { Store, StoredRoom } from './store.ts';
@@ -26,22 +26,32 @@ function remaining(room: StoredRoom, color: Color, now: number): number {
   const since = room.disconnectedSince[color];
   return Math.max(0, room.disconnectRemainingMs[color] - (since === null ? 0 : now - since));
 }
+function checkpointClock(room: StoredRoom, now: number) {
+  if (room.deadlineMonoMs === null || room.game?.status !== 'playing' || !room.clockRemainingMs) return;
+  const color = room.game.turn;
+  const left = Math.max(0, room.deadlineMonoMs - now);
+  room.turnElapsedMs += Math.max(0, room.clockRemainingMs[color] - left);
+  room.clockRemainingMs[color] = left;
+}
 function freeze(room: StoredRoom, now: number, wall: number) {
-  room.turnRemainingMs = room.deadlineMonoMs === null ? room.turnRemainingMs : Math.max(0, room.deadlineMonoMs - now);
+  checkpointClock(room, now);
   room.deadlineMonoMs = null;
   for (const color of COLORS) { room.disconnectRemainingMs[color] = remaining(room, color, now); room.disconnectedSince[color] = null; }
   room.endedAt = wall;
 }
 function lose(room: StoredRoom, loser: Color, reason: 'turn-timeout' | 'disconnect-timeout', now: number, wall: number) {
   if (!room.game) throw new Error('A running match must have a game');
-  const { board, players, completedLines } = room.game;
-  room.game = { board, players, completedLines, status: 'finished', winner: opposite(loser), reason };
+  const { boardSize, board, players, completedLines } = room.game;
   freeze(room, now, wall);
+  room.game = { boardSize, board, players, completedLines, status: 'finished', winner: opposite(loser), reason };
   room.status = 'finished';
 }
 function startIfReady(room: StoredRoom, now: number) {
   if (room.status !== 'waiting' || !COLORS.every(color => room.players[color]?.ready && room.players[color]?.connected)) return;
-  room.game = createGame(); room.status = 'active'; room.turnRemainingMs = TURN_MS; room.deadlineMonoMs = now + TURN_MS;
+  if (room.timeControl.kind !== 'fischer') throw new Error('Legacy rooms cannot start');
+  room.game = createGame(); room.status = 'active';
+  room.clockRemainingMs = { black: room.timeControl.baseMs, white: room.timeControl.baseMs };
+  room.turnElapsedMs = 0; room.deadlineMonoMs = now + room.timeControl.baseMs;
 }
 
 export function createMatchService(store: Store, clock: Clock, onError: (error: unknown) => void = error => console.error('Match timer failed', error)): MatchService {
@@ -96,7 +106,7 @@ export function createMatchService(store: Store, clock: Clock, onError: (error: 
     if (room.status === 'waiting') startIfReady(room, now);
     else if (!connected) {
       if (room.status === 'active') {
-        room.turnRemainingMs = Math.max(0, (room.deadlineMonoMs ?? now) - now);
+        checkpointClock(room, now);
         room.deadlineMonoMs = null; room.status = 'paused';
       }
       room.disconnectedSince[color] = now;
@@ -104,7 +114,8 @@ export function createMatchService(store: Store, clock: Clock, onError: (error: 
       room.disconnectRemainingMs[color] = remaining(room, color, now);
       room.disconnectedSince[color] = null;
       if (COLORS.every(player => room.players[player]?.connected)) {
-        room.status = 'active'; room.deadlineMonoMs = now + room.turnRemainingMs;
+        if (!room.clockRemainingMs || room.game?.status !== 'playing') throw new Error('Paused room has no clock');
+        room.status = 'active'; room.deadlineMonoMs = now + room.clockRemainingMs[room.game.turn];
       }
     }
     return true;
@@ -121,7 +132,7 @@ export function createMatchService(store: Store, clock: Clock, onError: (error: 
       }
     }, 1000));
   }
-  function settle(code: string): StoredRoom {
+  function settle(code: string, now = clock.nowMs()): StoredRoom {
     const room = requireRoom(store, code, clock);
     const pending = pendingDisconnects.get(code);
     let changed = false;
@@ -131,7 +142,7 @@ export function createMatchService(store: Store, clock: Clock, onError: (error: 
         changed = changeConnection(room, event.sessionId, false, event.at) || changed;
       }
     }
-    changed = expire(room, clock.nowMs()) || changed;
+    changed = expire(room, now) || changed;
     if (changed) {
       const oldRevision = room.revision;
       room.revision++;
@@ -162,10 +173,12 @@ export function createMatchService(store: Store, clock: Clock, onError: (error: 
       memberColor(requireRoom(store, code, clock), sessionId);
       const room = settle(code), now = clock.nowMs();
       const view = (color: Color) => { const seat = room.players[color]; return seat ? { nickname: seat.nickname, ready: seat.ready, connected: seat.connected } : null; };
+      const banks = room.clockRemainingMs ? { ...room.clockRemainingMs } : null;
+      if (banks && room.game?.status === 'playing' && room.deadlineMonoMs !== null) banks[room.game.turn] = Math.max(0, room.deadlineMonoMs - now);
       return roomSchema.parse({
         code: room.code, revision: room.revision, status: room.status, you: memberColor(room, sessionId),
         players: { black: view('black'), white: view('white') }, game: room.game,
-        turnRemainingMs: room.deadlineMonoMs === null ? room.turnRemainingMs : Math.max(0, room.deadlineMonoMs - now),
+        timeControl: room.timeControl, clockRemainingMs: banks, moveCount: room.moveCount, lastMove: room.lastMove,
         disconnectRemainingMs: { black: remaining(room, 'black', now), white: remaining(room, 'white', now) },
         serverTime: clock.wallMs(), abortReason: room.abortReason,
       });
@@ -180,26 +193,37 @@ export function createMatchService(store: Store, clock: Clock, onError: (error: 
         if (receipt.request !== request) throw new ServiceError('COMMAND_ID_REUSED');
         return { type: 'ack', commandId: command.commandId, appliedRevision: receipt.appliedRevision };
       }
-      const room = settle(code);
+      const now = clock.nowMs(), wall = clock.wallMs();
+      const room = settle(code, now);
       if (terminal(room)) throw new ServiceError('GAME_FINISHED');
       if (!room.players[color]?.connected) throw new ServiceError('NOT_CONNECTED');
       if (command.expectedRevision !== room.revision) throw new ServiceError('STALE_REVISION');
       const oldRevision = room.revision;
+      let move: MoveRecord | undefined;
       if (command.type === 'ready') {
         if (room.status !== 'waiting') throw new ServiceError('GAME_STARTED');
         const seat = room.players[color];
         if (!seat) throw new ServiceError('NOT_A_MEMBER', 403);
         if (!seat.ready) { seat.ready = true; room.revision++; }
-        startIfReady(room, clock.nowMs());
+        startIfReady(room, now);
       } else {
         if (room.status !== 'active' || !room.game) throw new ServiceError('GAME_PAUSED');
+        if (room.timeControl.kind !== 'fischer' || !room.clockRemainingMs) throw new Error('Live room has no Fischer clock');
+        const captured = command.action.type === 'moveChess' ? room.game.board[command.action.to] ?? null : null;
         const result = applyAction(room.game, color, command.action, command.claimedLines);
         if (!result.ok) throw new ServiceError(result.code);
+        checkpointClock(room, now);
+        room.clockRemainingMs[color] += room.timeControl.incrementMs;
+        room.moveCount++;
+        room.lastMove = { ply: room.moveCount, actor: color, action: command.action };
+        move = { ...room.lastMove, claimedLines: command.claimedLines, recordedAt: wall, elapsedMs: room.turnElapsedMs, clockAfterMs: { ...room.clockRemainingMs }, captured };
+        room.turnElapsedMs = 0;
         room.game = result.state; room.revision++;
-        if (result.state.status === 'finished') { freeze(room, clock.nowMs(), clock.wallMs()); room.status = 'finished'; }
-        else { room.turnRemainingMs = TURN_MS; room.deadlineMonoMs = clock.nowMs() + TURN_MS; }
+        room.deadlineMonoMs = null;
+        if (result.state.status === 'finished') { freeze(room, now, wall); room.status = 'finished'; }
+        else room.deadlineMonoMs = now + room.clockRemainingMs[result.state.turn];
       }
-      store.save(room, oldRevision, { sessionId, commandId: command.commandId, request, appliedRevision: room.revision });
+      store.save(room, oldRevision, { sessionId, commandId: command.commandId, request, appliedRevision: room.revision }, move);
       schedule(room);
       // The caller sends ACK only after this commit; snapshots never precede commit.
       notify(code);

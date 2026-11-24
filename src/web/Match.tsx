@@ -12,6 +12,8 @@ import LinePicker from './LinePicker.tsx';
 import MatchStatus from './MatchStatus.tsx';
 import PlayerResources from './PlayerResources.tsx';
 import PieceTray from './PieceTray.tsx';
+import MoveList from './MoveList.tsx';
+import { useMoves } from './useMoves.ts';
 interface Draft { revision: number; mode: PieceKind | null; from: number | null; action: Action | null; claims: Line[] }
 interface Props { room: RoomSnapshot; receivedAt: number; enabled: boolean; pending: Command | null; onLobby: () => void; onRetryPending: () => void; onAction: (action: Action, claimedLines: Line[]) => boolean }
 export default function Match({ room, receivedAt, enabled, pending, onLobby, onRetryPending, onAction }: Props) {
@@ -28,6 +30,9 @@ export default function Match({ room, receivedAt, enabled, pending, onLobby, onR
   const elapsed = Math.max(0, now - receivedAt);
   const terminal = room.status === 'finished' || room.status === 'aborted';
   const game = room.game;
+  const record = useMoves(room.code, room.moveCount);
+  const lastAction = room.lastMove?.action;
+  const lastCell = lastAction ? lastAction.type === 'moveChess' ? lastAction.to : lastAction.at : null;
   useEffect(() => { setDraft(null); setError(null); }, [room.revision]);
   const activeDraft = draft?.revision === room.revision ? draft : null;
   const pendingAction = pending?.type === 'action' && pending.expectedRevision === room.revision ? pending : null;
@@ -38,7 +43,7 @@ export default function Match({ room, receivedAt, enabled, pending, onLobby, onR
   const legal = useMemo(() => {
     const cells = new Set<number>();
     if (!game || !enabled || pending || activeDraft?.from == null || game.players[room.you].food < 2) return cells;
-    for (let cell = 0; cell < 400; cell++) if (canMove(game.board, activeDraft.from, cell, room.you, protectedSet)) cells.add(cell);
+    for (let cell = 0; cell < game.board.length; cell++) if (canMove(game.board, activeDraft.from, cell, room.you, protectedSet, game.boardSize)) cells.add(cell);
     return cells;
   }, [game, enabled, pending, activeDraft?.from, room.you, protectedSet]);
   const needed = game ? 2 - game.completedLines[room.you].length : 0;
@@ -56,7 +61,7 @@ export default function Match({ room, receivedAt, enabled, pending, onLobby, onR
       if (game.players[room.you].food < 2) { setError(errorText('NO_FOOD')); return; }
       setDraft({ revision: room.revision, mode: null, from: cell, action: null, claims: [] }); setError(null); setNotice(null); return;
     }
-    const candidate = actionAt(activeDraft?.mode ?? null, activeDraft?.from ?? null, cell);
+    const candidate = actionAt(activeDraft?.mode ?? null, activeDraft?.from ?? null, cell, game.boardSize);
     if (!candidate) { setError('먼저 배치할 기물 또는 이동할 내 체스기물을 선택해 주세요.'); return; }
     const result = previewAction(game, room.you, candidate);
     if (!result.ok) { setError(errorText(result.code)); return; }
@@ -83,22 +88,27 @@ export default function Match({ room, receivedAt, enabled, pending, onLobby, onR
       <PlayerResources room={room} color={room.you} elapsed={elapsed} />
       {game && !terminal && <PieceTray supply={game.players[room.you]} mode={activeDraft?.mode ?? null} enabled={canAct} onMode={chooseMode} />}
     </aside>
-    <div className="cockpit-board"><Board game={showPreview} selected={selected} legal={legal} previewCell={previewCell} claimedLines={claims} onSelect={select} onCancel={cancel} /></div>
+    <div className="cockpit-board"><Board game={showPreview} selected={selected} legal={legal} previewCell={previewCell} claimedLines={claims} lastCell={lastCell} onSelect={select} onCancel={cancel} /></div>
     <aside className="cockpit-command" aria-label="착수 명령">
       <MatchStatus room={room} elapsed={elapsed} />
       <div className="command-content">
         {game && !terminal && <>
           <p className="turn-instruction" role="status">{pending ? '서버에서 요청을 확인하고 있습니다.' : room.status === 'paused' ? '재연결을 기다리는 동안 보드를 살펴볼 수 있습니다.' : canAct ? '내 차례입니다. 한 수를 선택하세요.' : '상대의 차례입니다. 보드를 살펴보세요.'}</p>
           {!pending && <ActionPanel mode={activeDraft?.mode ?? null} moving={selected !== null} action={action} foodChange={preview?.ok ? preview.state.players[room.you].food - game.players[room.you].food : null} error={error} />}
-          {preview?.ok && preview.candidates.length > 0 && !pending && <LinePicker candidates={preview.candidates} selected={claims} needed={needed} onChoose={chooseLine} onReset={() => { if (activeDraft) setDraft({ ...activeDraft, claims: [] }); }} />}
+          {preview?.ok && preview.candidates.length > 0 && !pending && <LinePicker boardSize={game.boardSize} candidates={preview.candidates} selected={claims} needed={needed} onChoose={chooseLine} onReset={() => { if (activeDraft) setDraft({ ...activeDraft, claims: [] }); }} />}
           {notice && <p className="small muted" role="status">{notice}</p>}
         </>}
-        {pending && <div className="pending-summary" role="status"><strong>{pending.type === 'action' ? `확인 중: ${actionLabel(pending.action)}` : '준비 요청 응답 확인 중'}</strong>{pending.type === 'action' && pending.claimedLines.length > 0 && <p>보호 구간: {pending.claimedLines.map(line => line.cells.map(cellLabel).join(' · ')).join(' / ')}</p>}<p className="small">응답을 확인할 때까지 다음 수를 보내지 않습니다.</p>{enabled && <button type="button" onClick={onRetryPending}>같은 요청 다시 확인</button>}</div>}
+        {pending && <div className="pending-summary" role="status"><strong>{pending.type === 'action' ? `확인 중: ${actionLabel(pending.action, game?.boardSize)}` : '준비 요청 응답 확인 중'}</strong>{pending.type === 'action' && pending.claimedLines.length > 0 && <p>보호 구간: {pending.claimedLines.map(line => line.cells.map(cell => cellLabel(cell, game?.boardSize)).join(' · ')).join(' / ')}</p>}<p className="small">응답을 확인할 때까지 다음 수를 보내지 않습니다.</p>{enabled && <button type="button" onClick={onRetryPending}>같은 요청 다시 확인</button>}</div>}
         {!terminal && <details className="command-help"><summary>착수 규칙</summary><p className="small muted">이동하려면 보드의 내 체스기물을 선택하세요. 이동 비용은 식량 2이며, 보호된 기물과 군사는 이동할 수 없습니다.</p><p className="small muted">방 상태가 바뀌면 미확정 선택은 초기화됩니다. 서버에서 확인한 착수만 보드에 남습니다.</p></details>}
+        <details className="live-moves"><summary>착수 기록 · {room.moveCount}수</summary>
+          {record.error && <p role="alert">{record.error}<button type="button" onClick={record.retry}>기보 다시 불러오기</button></p>}
+          {!record.ready && !record.error && <p role="status">확정 수순을 불러오고 있습니다.</p>}
+          <MoveList moves={record.moves} boardSize={game?.boardSize ?? 19} />
+        </details>
       </div>
       <div className="command-footer">
         {game && !terminal && <div className="confirm-buttons"><button type="button" className="primary" disabled={!canAct || !complete || Boolean(pending)} onClick={confirm}>착수 확정</button><button type="button" disabled={Boolean(pending) || (!action && !activeDraft?.mode && selected === null)} onClick={cancel}>선택 취소</button></div>}
-        {terminal && <section className="result-actions"><p>이 보드는 마지막 확정 기록입니다. 새 방에서 다시 만날 수 있습니다.</p><button type="button" className="primary" onClick={onLobby}>새 방 만들기로 이동</button></section>}
+        {terminal && <section className="result-actions"><p>마지막 확정 기록입니다. 기보와 개인 분석은 종료 후 7일 보관됩니다.</p><a href={`/records/${encodeURIComponent(room.code)}`}>기보 복기·브랜치 분석</a><button type="button" className="primary" onClick={onLobby}>새 방 만들기로 이동</button></section>}
       </div>
     </aside>
   </div>;
