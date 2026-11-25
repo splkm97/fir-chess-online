@@ -111,11 +111,13 @@ PUBLIC_ORIGIN=http://localhost:3000 npm start
 
 | 설정 | 의미 |
 |---|---|
-| `HOST` | 기본 `127.0.0.1`; LAN 노출은 `0.0.0.0` |
+| `HOST` | 기본 `0.0.0.0`(모든 IPv4 인터페이스); 로컬 전용은 `127.0.0.1` |
 | `PORT` | API/운영 화면 포트, 기본 `3000` |
 | `PUBLIC_ORIGIN` | 브라우저가 사용하는 정확한 scheme·host·port; 허용 Origin |
 | `DATABASE_PATH` | SQLite 파일 경로, 기본 `data/omokchess.sqlite` |
 | `NODE_ENV` | `production`이면 보안 쿠키·운영 설정 검사 |
+
+Vite 개발 서버도 기본적으로 `0.0.0.0:5173`에서 수신합니다. 다른 기기에서 개발 서버에 접속하려면 `PUBLIC_ORIGIN=http://<PC의-LAN-IP>:5173`으로 설정하고 해당 주소를 사용하세요.
 
 ### 같은 Wi-Fi의 휴대전화로 실행
 

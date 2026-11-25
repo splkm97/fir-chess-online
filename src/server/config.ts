@@ -7,5 +7,5 @@ export function readConfig(env: NodeJS.ProcessEnv = process.env): Config {
   const origin = new URL(env.PUBLIC_ORIGIN ?? 'http://localhost:5173');
   if (!['http:', 'https:'].includes(origin.protocol) || origin.username || origin.password || origin.pathname !== '/' || origin.search || origin.hash) throw new Error('PUBLIC_ORIGIN must be an HTTP origin');
   if (production && (origin.protocol !== 'https:' || !env.DATABASE_PATH)) throw new Error('Production requires HTTPS PUBLIC_ORIGIN and DATABASE_PATH');
-  return { host: env.HOST ?? '127.0.0.1', port, origin: origin.origin, databasePath: resolve(env.DATABASE_PATH ?? 'data/omokchess.sqlite'), production };
+  return { host: env.HOST ?? '0.0.0.0', port, origin: origin.origin, databasePath: resolve(env.DATABASE_PATH ?? 'data/omokchess.sqlite'), production };
 }
